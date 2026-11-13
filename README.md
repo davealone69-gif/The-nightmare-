@@ -1,10 +1,34 @@
 # THE NIGHTMARE
 
-A local, human-supervised multi-agent harness. Phase 1 is a small Python command-line skeleton that sends one task to a configurable, loopback-only OpenAI-compatible LLM server. Later phases add workers, retrieval, reset auditing, human queues, and export.
+A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
 ## Project status
 
-Phase 1 code is present under `agent_harness/`. Its tests use a local mock HTTP server; a real-model answer has not yet been verified because no local LLM server/model was available in the build environment. The harness does not include or load a model, and nothing is deployed or certified. The broader specification’s scores, thresholds, policies, and retention defaults remain proposed engineering baselines, not measured system performance.
+Phase 2 is implemented locally: each episode routes in order through Retriever, Analyst, then Formatter. Worker results have validated confidence in the range 0–1 and an explicit `COMPLETED` or `ABSTAINED` status. An abstention is a normal episode outcome (CLI exit code 0), not an orchestration error; malformed worker output also fails closed as `ABSTAINED / INVALID_RESPONSE`. The displayed confidence is model-reported and uncalibrated, not a certified score.
+
+No real-model Phase 2 run has yet been verified by this repository. Tests use a local mock HTTP server. Nothing is deployed or certified.
+
+## Run and test
+
+Install no extra packages. From the repository root, set the local Ollama model and pass a self-contained task:
+
+```sh
+./run.sh --model llama3.2:1b 'Repeat exactly this token: NIGHTMARE_PHASE2_OK'
+```
+
+The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. The output reports the episode status and which roles ran. `COMPLETED` includes the formatted answer; `ABSTAINED` names the role and reason. A request that needs external or source-backed evidence may abstain because no retrieval library is present yet.
+
+Run the deterministic test suite with:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+## Scope and next phase
+
+The Retriever has no search tool, external network, or library access. It may use only information explicitly present in the task; it must abstain rather than invent retrieval results, facts, or citations when outside evidence is required. The library/retrieval feature remains Phase 3. This phase also does not add reset auditing, logs, a human review queue, export, the visible critic pair, or any production scoring/certification capability.
+
+The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
 
 ## Long-term design intent
 
@@ -17,14 +41,4 @@ Phase 1 code is present under `agent_harness/`. Its tests use a local mock HTTP 
 
 Monitoring and human review are disclosed to the accountable operator. The design does not use hidden queues or disguise machine influence as randomness or independent human judgment.
 
-## Scope of the current implementation
-
-Phase 1 is deliberately limited to one worker and one local LLM request per task. It has no multi-worker routing, confidence scoring, abstention handling, retrieval, episode reset/audit, sealed logs, human queue, or export yet. Do not treat those later-phase requirements as implemented. The broader design proposal remains limited to still-image quality review and excludes identity matching, biometric recognition, demographic or protected-trait inference, personal-photo evaluation, online learning, autonomous correction, and machine-issued certification.
-
-## Specification
-
-See [the full implementation specification](docs/implementation-spec.md) for architecture, API and event schemas, scoring and calibration gates, human governance, security and reset controls, phased build order, acceptance tests, and the failure-mode register.
-
-## Current decision gate
-
-Phase 1’s remaining acceptance check is a run against the owner’s actual local model server. After that, stop for the owner’s test result before beginning Phase 2. Do not describe the broader system as production-ready until each applicable gate in the specification has reproducible evidence and the exact release bundle has human approval.
+The broader design proposal remains limited to still-image quality review and excludes identity matching, biometric recognition, demographic or protected-trait inference, personal-photo evaluation, online learning, autonomous correction, and machine-issued certification. Do not describe this local harness as production-ready; applicable gates and human approvals in the full specification remain outstanding.

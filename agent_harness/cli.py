@@ -1,4 +1,4 @@
-"""Command-line entry point for one local agent episode."""
+"""Command-line entry point for one local three-worker episode."""
 
 import argparse
 from pathlib import Path
@@ -7,14 +7,14 @@ from typing import Optional, Sequence
 
 from .config import ConfigError, load_config
 from .llm import LLMError, LocalLLMClient
-from .orchestrator import Orchestrator
-from .worker import GeneralWorker
+from .orchestrator import EpisodeStatus, OrchestrationError, Orchestrator
+from .worker import Analyst, Formatter, Retriever
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="local-agent",
-        description="Run one task through the local single-worker harness.",
+        description="Run one task through local Retriever, Analyst, and Formatter workers.",
     )
     parser.add_argument(
         "--config",
@@ -41,10 +41,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         if not config.model:
             raise ConfigError("set model in config.json or pass --model with a local model id")
-        worker = GeneralWorker(LocalLLMClient(config))
-        answer = Orchestrator(worker).run_episode(" ".join(args.task))
-    except (ConfigError, LLMError, ValueError) as exc:
+        client = LocalLLMClient(config)
+        result = Orchestrator(
+            Retriever(client),
+            Analyst(client),
+            Formatter(client),
+        ).run_episode(" ".join(args.task))
+    except (ConfigError, LLMError, OrchestrationError, ValueError) as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return 2
-    print(answer)
+
+    print("status: {}".format(result.status.value))
+    print("confidence: {:.2f}".format(result.confidence))
+    print("workers: {}".format(" -> ".join(item.role for item in result.worker_results)))
+    if result.status is EpisodeStatus.ABSTAINED:
+        print("abstaining_worker: {}".format(result.abstaining_worker))
+        print("reason: {}".format(result.reason))
+        return 0
+
+    print("answer:")
+    print(result.answer)
     return 0
