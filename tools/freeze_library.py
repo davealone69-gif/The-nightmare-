@@ -8,12 +8,22 @@ from pathlib import Path
 import re
 import stat
 import sys
+import tempfile
+from typing import Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent_harness.config import ConfigError, load_config  # noqa: E402
-from agent_harness.library import MAX_LIBRARY_BYTES, MAX_SOURCE_BYTES, MAX_SOURCES, MANIFEST_NAME  # noqa: E402
+from agent_harness.library import (  # noqa: E402
+    MAX_LIBRARY_BYTES,
+    MAX_MANIFEST_BYTES,
+    MAX_SOURCE_BYTES,
+    MAX_SOURCES,
+    FrozenLibrary,
+    MANIFEST_NAME,
+    snapshot_id_for_sources,
+)
 
 
 def _source_title(text: str, path: Path) -> str:
@@ -29,7 +39,12 @@ def _source_id(relative_path: str) -> str:
     return "DOC-{}".format(slug[:60]).rstrip("-")
 
 
-def freeze(library_dir: Path) -> str:
+def freeze(
+    library_dir: Path,
+    expected_snapshot_id: Optional[str] = None,
+    *,
+    allow_repin: bool = False,
+) -> str:
     """Create a first manifest and lock sources; refuses to replace a snapshot."""
     root = Path(library_dir)
     if root.exists() and root.is_symlink():
@@ -87,17 +102,29 @@ def freeze(library_dir: Path) -> str:
             }
         )
 
-    snapshot_payload = json.dumps(sources, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    snapshot_id = "snapshot-{}".format(hashlib.sha256(snapshot_payload.encode("utf-8")).hexdigest()[:16])
+    snapshot_id = snapshot_id_for_sources(sources)
+    if (
+        expected_snapshot_id is not None
+        and snapshot_id != expected_snapshot_id
+        and not allow_repin
+    ):
+        raise ValueError("new library snapshot differs from the configured pin; pass --repin to replace it")
     manifest = {
         "schema_version": "1.0",
         "snapshot_id": snapshot_id,
         "sources": sources,
     }
     serialized = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+    serialized_bytes = serialized.encode("utf-8")
+    if len(serialized_bytes) > MAX_MANIFEST_BYTES:
+        raise ValueError(
+            "serialized library manifest exceeds the {} byte limit".format(
+                MAX_MANIFEST_BYTES
+            )
+        )
     descriptor = os.open(str(manifest_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-        output.write(serialized)
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(serialized_bytes)
         output.flush()
         os.fsync(output.fileno())
 
@@ -110,7 +137,52 @@ def freeze(library_dir: Path) -> str:
     return snapshot_id
 
 
-def main() -> int:
+def pin_existing(
+    library_dir: Path,
+    expected_snapshot_id: Optional[str],
+    *,
+    allow_repin: bool = False,
+) -> str:
+    """Validate and return a snapshot, preserving any pre-existing config pin."""
+    snapshot_id = FrozenLibrary(library_dir).validate_for_pin_recovery()
+    if (
+        expected_snapshot_id is not None
+        and snapshot_id != expected_snapshot_id
+        and not allow_repin
+    ):
+        raise ValueError(
+            "configured library pin does not match the existing snapshot; "
+            "refusing to replace it without --repin"
+        )
+    return snapshot_id
+
+
+def _write_config_pin(config_path: Path, snapshot_id: str, *, allow_repin: bool = False) -> None:
+    """Atomically store the trusted snapshot ID outside the library directory."""
+    config_path = Path(config_path)
+    raw_config = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_config, dict):
+        raise ValueError("config file must contain a JSON object")
+    old_pin = raw_config.get("library_snapshot_id")
+    if old_pin is not None and old_pin != snapshot_id and not allow_repin:
+        raise ValueError("refusing to replace the configured library pin without --repin")
+    raw_config["library_snapshot_id"] = snapshot_id
+    serialized = json.dumps(raw_config, ensure_ascii=False, indent=2) + "\n"
+    current_mode = stat.S_IMODE(config_path.stat().st_mode)
+    descriptor, temp_name = tempfile.mkstemp(prefix=".config-pin-", dir=str(config_path.parent))
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(serialized)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temp_name, current_mode)
+        os.replace(temp_name, str(config_path))
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
@@ -118,16 +190,40 @@ def main() -> int:
         default=PROJECT_ROOT / "config.json",
         help="JSON app config (default: config.json in the project root)",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--pin-existing",
+        action="store_true",
+        help="validate an existing frozen library and pin its ID without modifying its files",
+    )
+    parser.add_argument(
+        "--repin",
+        action="store_true",
+        help="explicitly replace an existing library_snapshot_id in config.json",
+    )
+    args = parser.parse_args(argv)
     try:
         config = load_config(args.config)
         library_dir = config.data_dir / "library"
-        snapshot_id = freeze(library_dir)
+        snapshot_id = (
+            pin_existing(
+                library_dir,
+                config.library_snapshot_id,
+                allow_repin=args.repin,
+            )
+            if args.pin_existing
+            else freeze(
+                library_dir,
+                expected_snapshot_id=config.library_snapshot_id,
+                allow_repin=args.repin,
+            )
+        )
+        _write_config_pin(config.config_path, snapshot_id, allow_repin=args.repin)
     except (ConfigError, OSError, UnicodeDecodeError, ValueError) as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return 2
     print("frozen library: {}".format(library_dir))
     print("snapshot_id: {}".format(snapshot_id))
+    print("config pin: {}".format(config.config_path))
     print("sources: read-only; update by preparing a new library snapshot")
     return 0
 

@@ -29,6 +29,33 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.data_dir, (root / "../data").resolve())
             self.assertEqual(config.model, "test-model")
             self.assertEqual(config.base_url, DEFAULT_BASE_URL)
+            self.assertIsNone(config.library_snapshot_id)
+
+    def test_accepts_a_valid_library_snapshot_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_id = "snapshot-0123456789abcdef"
+            config = load_config(
+                self.write_config(root, library_snapshot_id=snapshot_id)
+            )
+            self.assertEqual(config.library_snapshot_id, snapshot_id)
+
+    def test_rejects_invalid_library_snapshot_pins(self) -> None:
+        invalid_values = (
+            "snapshot-test",
+            "snapshot-0123456789abcde",
+            "snapshot-0123456789abcdeG",
+            "",
+            42,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for value in invalid_values:
+                with self.subTest(value=value):
+                    with self.assertRaisesRegex(ConfigError, "library_snapshot_id"):
+                        load_config(
+                            self.write_config(root, library_snapshot_id=value)
+                        )
 
     def test_rejects_data_dir_inside_project(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

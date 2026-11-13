@@ -5,6 +5,7 @@ import ipaddress
 import json
 import math
 from pathlib import Path
+import re
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -25,6 +26,7 @@ class AppConfig:
     timeout_seconds: float
     data_dir: Path
     config_path: Path
+    library_snapshot_id: Optional[str] = None
 
 
 def _validate_base_url(value: object) -> str:
@@ -84,7 +86,13 @@ def load_config(
 
     if not isinstance(raw, dict):
         raise ConfigError("config file must contain a JSON object")
-    allowed = {"base_url", "model", "timeout_seconds", "data_dir"}
+    allowed = {
+        "base_url",
+        "model",
+        "timeout_seconds",
+        "data_dir",
+        "library_snapshot_id",
+    }
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise ConfigError("unknown config setting(s): {}".format(", ".join(unknown)))
@@ -123,10 +131,18 @@ def load_config(
     if is_inside_config_dir:
         raise ConfigError("data_dir must resolve outside the config directory")
 
+    snapshot_id = raw.get("library_snapshot_id")
+    if snapshot_id is not None and (
+        not isinstance(snapshot_id, str)
+        or not re.fullmatch(r"snapshot-[0-9a-f]{16}", snapshot_id)
+    ):
+        raise ConfigError("library_snapshot_id must be a valid pinned snapshot id")
+
     return AppConfig(
         base_url=base_url,
         model=model,
         timeout_seconds=timeout_seconds,
         data_dir=data_dir,
         config_path=path,
+        library_snapshot_id=snapshot_id,
     )
