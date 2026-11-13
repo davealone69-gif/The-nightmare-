@@ -6,8 +6,9 @@ import sys
 from typing import Optional, Sequence
 
 from .config import ConfigError, load_config
+from .library import FrozenLibrary
 from .llm import LLMError, LocalLLMClient
-from .orchestrator import EpisodeStatus, OrchestrationError, Orchestrator
+from .orchestrator import CitationStatus, EpisodeStatus, OrchestrationError, Orchestrator
 from .worker import Analyst, Formatter, Retriever
 
 
@@ -42,8 +43,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not config.model:
             raise ConfigError("set model in config.json or pass --model with a local model id")
         client = LocalLLMClient(config)
+        library = FrozenLibrary(config.data_dir / "library")
         result = Orchestrator(
-            Retriever(client),
+            Retriever(client, library),
             Analyst(client),
             Formatter(client),
         ).run_episode(" ".join(args.task))
@@ -59,6 +61,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("reason: {}".format(result.reason))
         return 0
 
+    print("citation_status: {}".format(result.citation_status.value))
+    if result.citation_status is CitationStatus.UNCITED:
+        print("warning: ANSWER_NOT_CITED")
+    elif result.citation_status is CitationStatus.INVALID:
+        print("warning: INVALID_CITATION")
     print("answer:")
     print(result.answer)
+    if result.source_refs:
+        print("sources:")
+        for source in result.source_refs:
+            print(
+                "- {} {} — {} (sha256:{})".format(
+                    source.citation,
+                    source.title,
+                    source.path,
+                    source.sha256,
+                )
+            )
     return 0

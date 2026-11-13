@@ -1,8 +1,11 @@
-"""Sequential Phase 2 orchestration for Retriever, Analyst, and Formatter."""
+"""Sequential Phase 3 orchestration for Retriever, Analyst, and Formatter."""
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import Tuple
+
+from .library import SourceReference
 
 from .worker import WorkerResult, WorkerStatus, validate_confidence
 
@@ -16,6 +19,18 @@ class EpisodeStatus(str, Enum):
     ABSTAINED = "ABSTAINED"
 
 
+class CitationStatus(str, Enum):
+    """Whether a completed answer cites the local sources it was given."""
+
+    NOT_REQUIRED = "NOT_REQUIRED"
+    CITED = "CITED"
+    UNCITED = "UNCITED"
+    INVALID = "INVALID"
+
+
+_CITATION_PATTERN = re.compile(r"\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]")
+
+
 @dataclass(frozen=True)
 class EpisodeResult:
     """Normal terminal outcome for one episode, including a valid abstention."""
@@ -26,6 +41,30 @@ class EpisodeResult:
     answer: str = ""
     abstaining_worker: str = ""
     reason: str = ""
+
+    @property
+    def source_refs(self) -> Tuple[SourceReference, ...]:
+        """Verified local sources retrieved for this episode, if any."""
+        if self.worker_results and self.worker_results[0].role == "Retriever":
+            return self.worker_results[0].source_refs
+        return ()
+
+    @property
+    def citations(self) -> Tuple[str, ...]:
+        """Citation IDs found in the user-visible answer, in first-use order."""
+        return tuple(dict.fromkeys(_CITATION_PATTERN.findall(self.answer)))
+
+    @property
+    def citation_status(self) -> CitationStatus:
+        """Flag missing or unrecognized citations; this does not verify claim truth."""
+        if not self.source_refs:
+            return CitationStatus.INVALID if self.citations else CitationStatus.NOT_REQUIRED
+        if not self.citations:
+            return CitationStatus.UNCITED
+        source_ids = {source.source_id for source in self.source_refs}
+        if any(citation not in source_ids for citation in self.citations):
+            return CitationStatus.INVALID
+        return CitationStatus.CITED
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, EpisodeStatus):

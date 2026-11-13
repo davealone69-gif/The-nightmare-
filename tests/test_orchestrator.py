@@ -3,10 +3,12 @@
 import unittest
 
 from agent_harness.orchestrator import (
+    CitationStatus,
     EpisodeStatus,
     OrchestrationError,
     Orchestrator,
 )
+from agent_harness.library import SourceReference
 from agent_harness.worker import WorkerResult, WorkerStatus
 
 
@@ -89,6 +91,28 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(workers[0].calls, [("task", ())])
         self.assertEqual(workers[1].calls, [("task", ("Retriever",))])
         self.assertEqual(workers[2].calls, [("task", ("Retriever", "Analyst"))])
+
+    def test_completed_answers_are_classified_by_retrieved_citations(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        for answer, expected in (
+            ("Indirect light [DOC-FERN-GUIDE].", CitationStatus.CITED),
+            ("Indirect light.", CitationStatus.UNCITED),
+            ("Indirect light [MADE-UP].", CitationStatus.INVALID),
+        ):
+            with self.subTest(answer=answer):
+                retriever, analyst, formatter = self.workers()
+                retriever.run = lambda task, previous=(): WorkerResult(
+                    "Retriever", WorkerStatus.COMPLETED, 0.9, "verified passage",
+                    source_refs=(source,),
+                )
+                formatter.run = lambda task, previous=(), answer=answer: WorkerResult(
+                    "Formatter", WorkerStatus.COMPLETED, 0.9, answer
+                )
+                outcome = Orchestrator(retriever, analyst, formatter).run_episode("task")
+                self.assertIs(outcome.citation_status, expected)
+                self.assertEqual(outcome.source_refs, (source,))
 
     def test_rejects_empty_task_and_wrong_role_order(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-empty"):

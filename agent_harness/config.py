@@ -18,7 +18,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Validated settings used by the Phase 1 harness."""
+    """Validated settings used by the local harness and external data directory."""
 
     base_url: str
     model: str

@@ -4,9 +4,9 @@ A local, human-supervised multi-agent harness. The repository's current build br
 
 ## Project status
 
-Phase 2 is implemented locally: each episode routes in order through Retriever, Analyst, then Formatter. Worker results have validated confidence in the range 0–1 and an explicit `COMPLETED` or `ABSTAINED` status. An abstention is a normal episode outcome (CLI exit code 0), not an orchestration error; malformed worker output also fails closed as `ABSTAINED / INVALID_RESPONSE`. The displayed confidence is model-reported and uncalibrated, not a certified score.
+Phases 1–3 are implemented locally; Phase 3 is awaiting the owner's test in Termux. Episodes route through Retriever, Analyst, then Formatter. The Retriever searches only a frozen, read-only text library outside the code tree, verifies source hashes, returns matching excerpts with stable IDs, and abstains when requested evidence is unavailable. Completed answers show their local source paths and are classified `CITED`, `UNCITED`, `INVALID`, or `NOT_REQUIRED`; uncited and unknown-source citations are visibly warned. Citation classification checks reference IDs, not whether every claim is true. Worker confidence remains uncalibrated, not a certified score.
 
-No real-model Phase 2 run has yet been verified by this repository. Tests use a local mock HTTP server. Nothing is deployed or certified.
+Tests use a local mock HTTP server, including an end-to-end cited library query. No real-model Phase 3 or Termux run has yet been verified. Nothing is deployed or certified.
 
 ## Run and test
 
@@ -16,7 +16,26 @@ Install no extra packages. From the repository root, set the local Ollama model 
 ./run.sh --model llama3.2:1b 'Repeat exactly this token: NIGHTMARE_PHASE2_OK'
 ```
 
-The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. The output reports the episode status and which roles ran. `COMPLETED` includes the formatted answer; `ABSTAINED` names the role and reason. Explicit live/current-data and citation/source-backed requests are conservatively abstained by a deterministic Retriever preflight before the model is called. Other ambiguous evidence needs may also abstain because no retrieval library is present yet.
+The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. No cloud API or extra package is used. The configured `data_dir` is relative to `config.json` and must remain outside the project; the frozen library lives at `data_dir/library/`.
+
+To create the optional demo corpus (the command refuses to overwrite an existing library) and run an example source-backed query:
+
+```sh
+python3 examples/seed_demo_library.py
+./run.sh --model llama3.2:1b 'According to the local guide, what light does a tree fern need? Cite the source.'
+```
+
+The sample query should produce a cited answer with `[DOC-DEMO-FERN-GUIDE-MD]` and a `sources:` entry pointing to `demo-fern-guide.md`. The local model must follow the citation prompt; if it omits a citation, the output explicitly reports `citation_status: UNCITED` and `warning: ANSWER_NOT_CITED`. Unknown source IDs are flagged `INVALID`. A source-backed query with no matching passage abstains before any model call. Live/current requests such as current weather still abstain because the local library is not a live-data service.
+
+For your Phase 3 owner test in Termux, run the deterministic suite and then the same example query. The demo seeder is one-time; if you already ran it above, skip that line below:
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 examples/seed_demo_library.py
+./run.sh --model llama3.2:1b 'According to the local guide, what light does a tree fern need? Cite the source.'
+```
+
+The seeder writes only under the configured external data directory and will stop rather than overwrite an existing library. Library sources are plain UTF-8 `.md` or `.txt` files (each at most 1 MiB; total source size at most 16 MiB). For a custom corpus, place those files in `data_dir/library/` and run `python3 tools/freeze_library.py`; it writes a manifest of SHA-256 digests and makes the snapshot files/directories read-only. The runtime never writes to the library and rejects writable, changed, missing, unlisted, or malformed snapshot content. Citation paths are relative to the library directory; their full content digests appear in the output.
 
 Run the deterministic test suite with:
 
@@ -26,7 +45,7 @@ python3 -m unittest discover -s tests -v
 
 ## Scope and next phase
 
-The Retriever has no search tool, external network, or library access. It may use only information explicitly present in the task; it must abstain rather than invent retrieval results, facts, or citations when outside evidence is required. Explicit live/current and citation/source requests are blocked before model inference; a completed response with zero confidence also becomes a `LOW_CONFIDENCE` abstention. The library/retrieval feature remains Phase 3. This phase also does not add reset auditing, logs, a human review queue, export, the visible critic pair, or any production scoring/certification capability.
+Phase 3 adds lexical retrieval from a frozen, manifest-verified local corpus and reference-ID validation. The library is read-only to runtime workers; the offline freezer is an explicit setup utility, not an automatic ingestion path. Retrieval is deterministic term overlap, not semantic search, and a valid citation ID does not prove that a claim is supported. No live network retrieval is available. Zero-confidence model completions become `LOW_CONFIDENCE` abstentions. Reset auditing, sealed logs, a human review queue, export, the visible critic pair, and production scoring/certification remain out of scope; Phase 4 and later have not been implemented.
 
 The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
 

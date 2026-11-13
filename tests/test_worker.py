@@ -4,6 +4,7 @@ import json
 import math
 import unittest
 
+from agent_harness.library import RetrievedPassage, SourceReference
 from agent_harness.worker import (
     Analyst,
     Formatter,
@@ -22,6 +23,16 @@ class FakeClient:
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
         return self.response
+
+
+class FakeLibrary:
+    def __init__(self, passages):
+        self.passages = passages
+        self.calls = []
+
+    def search(self, query: str):
+        self.calls.append(query)
+        return "snapshot-test", self.passages
 
 
 def response(status: str = "COMPLETED", confidence: object = 0.8, **fields: object) -> str:
@@ -53,12 +64,10 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(len(client.calls), 1)
                 self.assertIn('"task"', client.calls[0][1])
 
-    def test_retriever_prompt_forbids_invented_sources_and_discloses_no_library(self) -> None:
+    def test_retriever_prompt_uses_frozen_library_and_forbids_invented_sources(self) -> None:
         prompt = Retriever(FakeClient(response())).system_prompt.lower()
-        self.assertIn("no search tool", prompt)
-        self.assertIn("approved evidence library", prompt)
+        self.assertIn("frozen, read-only local library", prompt)
         self.assertIn("never invent sources", prompt)
-        self.assertIn("library_unavailable", prompt)
 
     def test_retriever_deterministically_abstains_on_live_weather_source_request(self) -> None:
         client = FakeClient(
@@ -74,6 +83,35 @@ class WorkerTests(unittest.TestCase):
         self.assertIs(result.status, WorkerStatus.ABSTAINED)
         self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
         self.assertEqual(result.content, "")
+        self.assertEqual(client.calls, [])
+
+    def test_retriever_returns_local_passages_and_traceable_source_references(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        library = FakeLibrary((RetrievedPassage(source, "Bright, indirect light."),))
+        client = FakeClient(response())
+        result = Retriever(client, library).run("What light does a tree fern need?")
+        self.assertIs(result.status, WorkerStatus.COMPLETED)
+        self.assertEqual(result.source_refs, (source,))
+        self.assertIn("[DOC-FERN-GUIDE]", result.content)
+        self.assertIn("sha256:" + "a" * 64, result.content)
+        self.assertEqual(library.calls, ["What light does a tree fern need?"])
+        self.assertEqual(client.calls, [])
+
+    def test_source_request_without_library_abstains_without_model_call(self) -> None:
+        client = FakeClient(response())
+        result = Retriever(client).run("Cite a source about tree fern light.")
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
+        self.assertEqual(client.calls, [])
+
+    def test_source_request_with_no_matching_passage_abstains(self) -> None:
+        library = FakeLibrary(())
+        client = FakeClient(response())
+        result = Retriever(client, library).run("Cite a source about tree fern light.")
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "NO_RELEVANT_SOURCE")
         self.assertEqual(client.calls, [])
 
     def test_explicit_abstention_parses_as_a_valid_result(self) -> None:

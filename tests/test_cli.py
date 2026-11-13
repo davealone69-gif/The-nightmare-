@@ -5,6 +5,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -16,13 +18,18 @@ class MockHandler(BaseHTTPRequestHandler):
     response_content = json.dumps(
         {"status": "COMPLETED", "confidence": 0.83, "content": "CLI local mock answer"}
     )
+    response_contents = None
     payloads = []
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
+        request_index = len(type(self).payloads)
         type(self).payloads.append(json.loads(self.rfile.read(length).decode("utf-8")))
+        response_content = type(self).response_content
+        if type(self).response_contents is not None:
+            response_content = type(self).response_contents[request_index]
         body = json.dumps(
-            {"choices": [{"message": {"content": type(self).response_content}}]}
+            {"choices": [{"message": {"content": response_content}}]}
         ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -42,6 +49,7 @@ class CLITests(unittest.TestCase):
         MockHandler.response_content = json.dumps(
             {"status": "COMPLETED", "confidence": 0.83, "content": "CLI local mock answer"}
         )
+        MockHandler.response_contents = None
         MockHandler.payloads = []
 
     def tearDown(self) -> None:
@@ -50,7 +58,8 @@ class CLITests(unittest.TestCase):
         self.thread.join(timeout=2)
 
     def config_path(self, temp_dir: str, model: str = "mock-model") -> Path:
-        root = Path(temp_dir)
+        root = Path(temp_dir) / "project"
+        root.mkdir()
         config_path = root / "config.json"
         config_path.write_text(
             json.dumps(
@@ -64,6 +73,24 @@ class CLITests(unittest.TestCase):
             encoding="utf-8",
         )
         return config_path
+
+    def freeze_demo_library(self, temp_dir: str, config_path: Path) -> None:
+        library_dir = Path(temp_dir) / "external-data" / "library"
+        library_dir.mkdir(parents=True)
+        (library_dir / "demo-fern-guide.md").write_text(
+            "# Demo garden guide: tree fern light\n\n"
+            "A tree fern grows best in bright, indirect light. Avoid harsh direct afternoon sun.\n"
+            "Keep the potting mix evenly moist, but do not leave the roots standing in water.\n",
+            encoding="utf-8",
+        )
+        freezer = Path(__file__).resolve().parents[1] / "tools" / "freeze_library.py"
+        result = subprocess.run(
+            [sys.executable, str(freezer), "--config", str(config_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_main_runs_all_three_workers_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -145,6 +172,95 @@ class CLITests(unittest.TestCase):
             self.assertIn("reason: LIBRARY_UNAVAILABLE", output.getvalue())
             self.assertNotIn("Unsupported current weather", output.getvalue())
             self.assertEqual(MockHandler.payloads, [])
+
+    def test_library_query_returns_answer_and_verified_source_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.config_path(temp_dir)
+            self.freeze_demo_library(temp_dir, config_path)
+            citation = "[DOC-DEMO-FERN-GUIDE-MD]"
+            MockHandler.response_contents = [
+                json.dumps(
+                    {
+                        "status": "COMPLETED",
+                        "confidence": 0.84,
+                        "content": "A tree fern prefers bright, indirect light " + citation + ".",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "status": "COMPLETED",
+                        "confidence": 0.82,
+                        "content": "Bright, indirect light is best for a tree fern " + citation + ".",
+                    }
+                ),
+            ]
+            output = io.StringIO()
+            errors = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "According to the local guide, what light does a tree fern need? Cite the source.",
+                    ]
+                )
+            self.assertEqual(status, 0, errors.getvalue())
+            self.assertEqual(errors.getvalue(), "")
+            self.assertIn("status: COMPLETED", output.getvalue())
+            self.assertIn("citation_status: CITED", output.getvalue())
+            self.assertIn("answer:\nBright, indirect light is best", output.getvalue())
+            self.assertIn("sources:\n- " + citation, output.getvalue())
+            self.assertIn("demo-fern-guide.md", output.getvalue())
+            self.assertIn("source_refs", MockHandler.payloads[0]["messages"][1]["content"])
+            self.assertEqual(len(MockHandler.payloads), 2)
+
+    def test_citation_required_but_no_relevant_local_source_abstains(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.config_path(temp_dir)
+            self.freeze_demo_library(temp_dir, config_path)
+            output = io.StringIO()
+            errors = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "According to the guide, what is the ocean temperature? Cite a source.",
+                    ]
+                )
+            self.assertEqual(status, 0)
+            self.assertEqual(errors.getvalue(), "")
+            self.assertIn("status: ABSTAINED", output.getvalue())
+            self.assertIn("abstaining_worker: Retriever", output.getvalue())
+            self.assertIn("reason: NO_RELEVANT_SOURCE", output.getvalue())
+            self.assertEqual(MockHandler.payloads, [])
+
+    def test_uncited_answer_is_flagged_and_sources_are_still_shown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.config_path(temp_dir)
+            self.freeze_demo_library(temp_dir, config_path)
+            MockHandler.response_contents = [
+                json.dumps(
+                    {"status": "COMPLETED", "confidence": 0.8, "content": "Bright, indirect light."}
+                ),
+                json.dumps(
+                    {"status": "COMPLETED", "confidence": 0.8, "content": "Bright, indirect light is best."}
+                ),
+            ]
+            output = io.StringIO()
+            errors = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "According to the local guide, what light does a tree fern need? Cite the source.",
+                    ]
+                )
+            self.assertEqual(status, 0, errors.getvalue())
+            self.assertIn("citation_status: UNCITED", output.getvalue())
+            self.assertIn("warning: ANSWER_NOT_CITED", output.getvalue())
+            self.assertIn("sources:\n- [DOC-DEMO-FERN-GUIDE-MD]", output.getvalue())
 
     def test_main_requires_a_model_identifier(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
