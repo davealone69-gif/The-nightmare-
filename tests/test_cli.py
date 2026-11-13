@@ -235,6 +235,44 @@ class CLITests(unittest.TestCase):
             self.assertIn("reason: NO_RELEVANT_SOURCE", output.getvalue())
             self.assertEqual(MockHandler.payloads, [])
 
+    def test_source_backed_query_returns_cited_excerpt_when_analyst_abstains(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.config_path(temp_dir)
+            self.freeze_demo_library(temp_dir, config_path)
+            citation = "[DOC-DEMO-FERN-GUIDE-MD]"
+            MockHandler.response_contents = [
+                json.dumps(
+                    {
+                        "status": "ABSTAINED",
+                        "confidence": 0.2,
+                        "content": "",
+                        "reason": "INSUFFICIENT_EVIDENCE",
+                    }
+                )
+            ]
+            output = io.StringIO()
+            errors = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "According to the local guide, what light does a tree fern need? Cite the source.",
+                    ]
+                )
+            self.assertEqual(status, 0, errors.getvalue())
+            self.assertEqual(errors.getvalue(), "")
+            self.assertIn("status: COMPLETED", output.getvalue())
+            self.assertIn("workers: Retriever -> Analyst -> Formatter", output.getvalue())
+            self.assertIn("citation_status: CITED", output.getvalue())
+            self.assertIn("answer_mode: EXTRACTIVE_FALLBACK", output.getvalue())
+            self.assertIn("The retrieved local excerpt says:", output.getvalue())
+            self.assertIn("A tree fern grows best in bright, indirect light.", output.getvalue())
+            self.assertIn(citation, output.getvalue())
+            self.assertIn("demo-fern-guide.md", output.getvalue())
+            self.assertEqual(len(MockHandler.payloads), 1)
+            self.assertIn("You are the Analyst role", MockHandler.payloads[0]["messages"][0]["content"])
+
     def test_uncited_answer_is_flagged_and_sources_are_still_shown(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = self.config_path(temp_dir)

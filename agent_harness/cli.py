@@ -66,6 +66,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("warning: ANSWER_NOT_CITED")
     elif result.citation_status is CitationStatus.INVALID:
         print("warning: INVALID_CITATION")
+    if result.worker_results[-1].extractive_fallback:
+        print("answer_mode: EXTRACTIVE_FALLBACK")
     print("answer:")
     print(result.answer)
     if result.source_refs:

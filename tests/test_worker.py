@@ -94,6 +94,7 @@ class WorkerTests(unittest.TestCase):
         result = Retriever(client, library).run("What light does a tree fern need?")
         self.assertIs(result.status, WorkerStatus.COMPLETED)
         self.assertEqual(result.source_refs, (source,))
+        self.assertEqual(result.retrieved_passages, library.passages)
         self.assertIn("[DOC-FERN-GUIDE]", result.content)
         self.assertIn("sha256:" + "a" * 64, result.content)
         self.assertEqual(library.calls, ["What light does a tree fern need?"])
@@ -113,6 +114,65 @@ class WorkerTests(unittest.TestCase):
         self.assertIs(result.status, WorkerStatus.ABSTAINED)
         self.assertEqual(result.reason, "NO_RELEVANT_SOURCE")
         self.assertEqual(client.calls, [])
+
+    def test_analyst_abstention_falls_back_to_verified_excerpt_and_formatter_preserves_it(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        passage = RetrievedPassage(source, "A tree fern grows best in bright, indirect light.")
+        retrieved = WorkerResult(
+            "Retriever",
+            WorkerStatus.COMPLETED,
+            0.8,
+            "verified local evidence",
+            source_refs=(source,),
+            retrieved_passages=(passage,),
+        )
+        analyst_client = FakeClient(
+            response(
+                "ABSTAINED",
+                0.2,
+                content="Invented answer [DOC-FABRICATED].",
+                reason="INSUFFICIENT_EVIDENCE",
+            )
+        )
+        task = "According to the local guide, what light does a tree fern need? Cite the source."
+        analyst_result = Analyst(analyst_client).run(task, (retrieved,))
+        self.assertIs(analyst_result.status, WorkerStatus.COMPLETED)
+        self.assertTrue(analyst_result.extractive_fallback)
+        self.assertEqual(
+            analyst_result.content,
+            "The retrieved local excerpt says: “{}” {}".format(
+                passage.excerpt,
+                source.citation,
+            ),
+        )
+        self.assertNotIn("DOC-FABRICATED", analyst_result.content)
+        self.assertEqual(analyst_result.source_refs, (source,))
+        self.assertEqual(len(analyst_client.calls), 1)
+
+        formatter_client = FakeClient(response(content="model changed the answer"))
+        formatted = Formatter(formatter_client).run(task, (retrieved, analyst_result))
+        self.assertIs(formatted.status, WorkerStatus.COMPLETED)
+        self.assertTrue(formatted.extractive_fallback)
+        self.assertEqual(formatted.content, analyst_result.content)
+        self.assertEqual(formatter_client.calls, [])
+
+    def test_extractively_marked_result_rejects_unverified_claims_or_citations(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        passage = RetrievedPassage(source, "A tree fern grows best in bright, indirect light.")
+        with self.assertRaisesRegex(ValueError, "quote its verified passage"):
+            WorkerResult(
+                "Analyst",
+                WorkerStatus.COMPLETED,
+                0.8,
+                "A tree fern needs full sun [DOC-FABRICATED].",
+                source_refs=(source,),
+                retrieved_passages=(passage,),
+                extractive_fallback=True,
+            )
 
     def test_explicit_abstention_parses_as_a_valid_result(self) -> None:
         result = parse_worker_response(

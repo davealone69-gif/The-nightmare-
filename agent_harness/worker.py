@@ -1,4 +1,4 @@
-"""Phase 2 worker roles and their validated, abstention-capable result contract."""
+"""Phase 3 worker roles and their validated, abstention-capable result contract."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -7,7 +7,7 @@ import math
 import re
 from typing import Optional, Sequence, Tuple
 
-from .library import FrozenLibrary, LibraryError, SourceReference
+from .library import FrozenLibrary, LibraryError, RetrievedPassage, SourceReference
 from .llm import LocalLLMClient
 
 
@@ -38,6 +38,8 @@ class WorkerResult:
     content: str = ""
     reason: str = ""
     source_refs: Tuple[SourceReference, ...] = ()
+    retrieved_passages: Tuple[RetrievedPassage, ...] = ()
+    extractive_fallback: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, str) or not self.role.strip():
@@ -59,6 +61,37 @@ class WorkerResult:
         source_ids = [reference.source_id for reference in self.source_refs]
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("worker source references must have unique ids")
+        if not isinstance(self.retrieved_passages, tuple) or any(
+            not isinstance(passage, RetrievedPassage)
+            or not isinstance(passage.source, SourceReference)
+            or not isinstance(passage.excerpt, str)
+            or not passage.excerpt.strip()
+            for passage in self.retrieved_passages
+        ):
+            raise ValueError("worker retrieved passages must be a tuple of non-empty validated passages")
+        references_by_id = {reference.source_id: reference for reference in self.source_refs}
+        if any(
+            references_by_id.get(passage.source.source_id) != passage.source
+            for passage in self.retrieved_passages
+        ):
+            raise ValueError("worker passages must refer to a verified source reference")
+        if not isinstance(self.extractive_fallback, bool):
+            raise ValueError("extractive fallback marker must be a boolean")
+        if self.extractive_fallback and (
+            self.role not in ("Analyst", "Formatter")
+            or self.status is not WorkerStatus.COMPLETED
+            or len(self.retrieved_passages) != 1
+            or self.source_refs != (self.retrieved_passages[0].source,)
+        ):
+            raise ValueError("extractive fallback must be a completed, sourced Analyst or Formatter result")
+        if self.extractive_fallback:
+            passage = self.retrieved_passages[0]
+            expected_content = "The retrieved local excerpt says: “{}” {}".format(
+                passage.excerpt,
+                passage.source.citation,
+            )
+            if self.content != expected_content:
+                raise ValueError("extractive fallback must quote its verified passage and citation exactly")
 
         if self.status is WorkerStatus.COMPLETED and not self.content:
             raise ValueError("a completed worker result must include content")
@@ -66,7 +99,7 @@ class WorkerResult:
             raise ValueError("a completed worker result must have positive confidence")
         if self.status is WorkerStatus.ABSTAINED and not self.reason:
             raise ValueError("an abstained worker result must include a reason")
-        if self.status is WorkerStatus.ABSTAINED and self.source_refs:
+        if self.status is WorkerStatus.ABSTAINED and (self.source_refs or self.retrieved_passages):
             raise ValueError("an abstained worker result cannot include retrieved sources")
 
 
@@ -138,6 +171,7 @@ class _Worker:
                 "content": result.content,
                 "reason": result.reason,
                 "source_refs": [source.source_id for source in result.source_refs],
+                "extractive_fallback": result.extractive_fallback,
             }
             for result in previous_results
         ]
@@ -249,6 +283,7 @@ class Retriever(_Worker):
                         confidence=0.8,
                         content="\n\n".join(evidence),
                         source_refs=tuple(passage.source for passage in passages),
+                        retrieved_passages=passages,
                     )
                 if requires_sources:
                     return self._abstain("NO_RELEVANT_SOURCE")
@@ -275,6 +310,31 @@ class Analyst(_Worker):
         "Confidence is your uncalibrated estimate, not a certified score."
     )
 
+    def run(
+        self, task: str, previous_results: Sequence[WorkerResult] = ()
+    ) -> WorkerResult:
+        result = super().run(task, previous_results)
+        if result.status is WorkerStatus.COMPLETED or not Retriever._requires_sources(task):
+            return result
+        for previous in previous_results:
+            if previous.role != "Retriever" or previous.status is not WorkerStatus.COMPLETED:
+                continue
+            for passage in previous.retrieved_passages:
+                source = passage.source
+                return WorkerResult(
+                    role=self.role,
+                    status=WorkerStatus.COMPLETED,
+                    confidence=previous.confidence,
+                    content="The retrieved local excerpt says: “{}” {}".format(
+                        passage.excerpt,
+                        source.citation,
+                    ),
+                    source_refs=(source,),
+                    retrieved_passages=(passage,),
+                    extractive_fallback=True,
+                )
+        return result
+
 
 class Formatter(_Worker):
     """Format the Analyst's result without introducing new claims or evidence."""
@@ -290,3 +350,21 @@ class Formatter(_Worker):
         "(string; required when abstaining). Confidence is your uncalibrated estimate, "
         "not a certified score."
     )
+
+    def run(
+        self, task: str, previous_results: Sequence[WorkerResult] = ()
+    ) -> WorkerResult:
+        if not isinstance(task, str) or not task.strip():
+            raise ValueError("task must be a non-empty string")
+        for previous in reversed(previous_results):
+            if previous.role == "Analyst" and previous.extractive_fallback:
+                return WorkerResult(
+                    role=self.role,
+                    status=WorkerStatus.COMPLETED,
+                    confidence=previous.confidence,
+                    content=previous.content,
+                    source_refs=previous.source_refs,
+                    retrieved_passages=previous.retrieved_passages,
+                    extractive_fallback=True,
+                )
+        return super().run(task, previous_results)
