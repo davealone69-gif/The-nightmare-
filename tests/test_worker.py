@@ -60,6 +60,22 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("never invent sources", prompt)
         self.assertIn("library_unavailable", prompt)
 
+    def test_retriever_deterministically_abstains_on_live_weather_source_request(self) -> None:
+        client = FakeClient(
+            response(
+                "COMPLETED",
+                0.0,
+                content="Unsupported current weather with an invented source",
+            )
+        )
+        result = Retriever(client).run(
+            "What is the current weather in Sydney? Cite a source."
+        )
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
+        self.assertEqual(result.content, "")
+        self.assertEqual(client.calls, [])
+
     def test_explicit_abstention_parses_as_a_valid_result(self) -> None:
         result = parse_worker_response(
             "Retriever",
@@ -87,6 +103,15 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(result.reason, "INVALID_RESPONSE")
                 self.assertEqual(result.confidence, 0.0)
 
+    def test_zero_confidence_completion_becomes_low_confidence_abstention(self) -> None:
+        result = parse_worker_response(
+            "Analyst",
+            response("COMPLETED", 0.0, content="Unsupported factual claim"),
+        )
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LOW_CONFIDENCE")
+        self.assertEqual(result.confidence, 0.0)
+
     def test_accepts_json_fenced_response(self) -> None:
         result = parse_worker_response(
             "Formatter",
@@ -97,7 +122,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(result.content, "formatted")
 
     def test_invalid_confidence_is_rejected_by_result_contract(self) -> None:
-        for confidence in (True, float("nan"), math.inf, -0.01, 1.01):
+        for confidence in (True, float("nan"), math.inf, -0.01, 0.0, 1.01):
             with self.subTest(confidence=confidence):
                 with self.assertRaisesRegex(ValueError, "confidence"):
                     WorkerResult(

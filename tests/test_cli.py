@@ -103,7 +103,13 @@ class CLITests(unittest.TestCase):
             output = io.StringIO()
             errors = io.StringIO()
             with redirect_stdout(output), redirect_stderr(errors):
-                status = main(["--config", str(config_path), "Find cited sources"])
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "Summarize this provided text: a self-contained sample.",
+                    ]
+                )
             self.assertEqual(status, 0)
             self.assertEqual(errors.getvalue(), "")
             self.assertIn("status: ABSTAINED", output.getvalue())
@@ -111,6 +117,34 @@ class CLITests(unittest.TestCase):
             self.assertIn("abstaining_worker: Retriever", output.getvalue())
             self.assertIn("reason: LIBRARY_UNAVAILABLE", output.getvalue())
             self.assertEqual(len(MockHandler.payloads), 1)
+
+    def test_current_weather_and_citation_request_abstains_without_model_call(self) -> None:
+        MockHandler.response_content = json.dumps(
+            {
+                "status": "COMPLETED",
+                "confidence": 0.0,
+                "content": "Unsupported current weather with a fabricated citation",
+            }
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.config_path(temp_dir)
+            output = io.StringIO()
+            errors = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                status = main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "What is the current weather in Sydney? Cite a source.",
+                    ]
+                )
+            self.assertEqual(status, 0)
+            self.assertEqual(errors.getvalue(), "")
+            self.assertIn("status: ABSTAINED", output.getvalue())
+            self.assertIn("abstaining_worker: Retriever", output.getvalue())
+            self.assertIn("reason: LIBRARY_UNAVAILABLE", output.getvalue())
+            self.assertNotIn("Unsupported current weather", output.getvalue())
+            self.assertEqual(MockHandler.payloads, [])
 
     def test_main_requires_a_model_identifier(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

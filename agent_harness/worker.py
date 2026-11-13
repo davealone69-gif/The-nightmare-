@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 import math
+import re
 from typing import Sequence
 
 from .llm import LocalLLMClient
@@ -51,6 +52,8 @@ class WorkerResult:
 
         if self.status is WorkerStatus.COMPLETED and not self.content:
             raise ValueError("a completed worker result must include content")
+        if self.status is WorkerStatus.COMPLETED and self.confidence == 0.0:
+            raise ValueError("a completed worker result must have positive confidence")
         if self.status is WorkerStatus.ABSTAINED and not self.reason:
             raise ValueError("an abstained worker result must include a reason")
 
@@ -84,6 +87,13 @@ def parse_worker_response(role: str, response: str) -> WorkerResult:
         confidence = validate_confidence(payload.get("confidence"))
         content = payload.get("content", "")
         reason = payload.get("reason", "")
+        if status is WorkerStatus.COMPLETED and confidence == 0.0:
+            return WorkerResult(
+                role=role,
+                status=WorkerStatus.ABSTAINED,
+                confidence=0.0,
+                reason="LOW_CONFIDENCE",
+            )
         return WorkerResult(
             role=role,
             status=status,
@@ -155,6 +165,35 @@ class Retriever(_Worker):
         "(string), and reason (string; required when abstaining). Confidence is your "
         "uncalibrated estimate, not a certified score."
     )
+
+    _evidence_request_patterns = (
+        re.compile(
+            r"\b(?:cite|cited|citations?|references?|bibliography|according to|source[- ]backed)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:current(?:ly)?|right now|today|latest|live|real[ -]time|up[ -]to[ -]date|as of)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:weather|forecast|traffic|breaking news|stock (?:prices?|quotes?)|share prices?|exchange rates?|currency rates?|sports scores?|flight status|opening hours)\b",
+            re.IGNORECASE,
+        ),
+    )
+
+    def run(
+        self, task: str, previous_results: Sequence[WorkerResult] = ()
+    ) -> WorkerResult:
+        if not isinstance(task, str) or not task.strip():
+            raise ValueError("task must be a non-empty string")
+        if any(pattern.search(task) for pattern in self._evidence_request_patterns):
+            return WorkerResult(
+                role=self.role,
+                status=WorkerStatus.ABSTAINED,
+                confidence=0.0,
+                reason="LIBRARY_UNAVAILABLE",
+            )
+        return super().run(task, previous_results)
 
 
 class Analyst(_Worker):

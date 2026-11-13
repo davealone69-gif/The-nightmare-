@@ -16,7 +16,7 @@ Install no extra packages. From the repository root, set the local Ollama model 
 ./run.sh --model llama3.2:1b 'Repeat exactly this token: NIGHTMARE_PHASE2_OK'
 ```
 
-The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. The output reports the episode status and which roles ran. `COMPLETED` includes the formatted answer; `ABSTAINED` names the role and reason. A request that needs external or source-backed evidence may abstain because no retrieval library is present yet.
+The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. The output reports the episode status and which roles ran. `COMPLETED` includes the formatted answer; `ABSTAINED` names the role and reason. Explicit live/current-data and citation/source-backed requests are conservatively abstained by a deterministic Retriever preflight before the model is called. Other ambiguous evidence needs may also abstain because no retrieval library is present yet.
 
 Run the deterministic test suite with:
 
@@ -26,7 +26,7 @@ python3 -m unittest discover -s tests -v
 
 ## Scope and next phase
 
-The Retriever has no search tool, external network, or library access. It may use only information explicitly present in the task; it must abstain rather than invent retrieval results, facts, or citations when outside evidence is required. The library/retrieval feature remains Phase 3. This phase also does not add reset auditing, logs, a human review queue, export, the visible critic pair, or any production scoring/certification capability.
+The Retriever has no search tool, external network, or library access. It may use only information explicitly present in the task; it must abstain rather than invent retrieval results, facts, or citations when outside evidence is required. Explicit live/current and citation/source requests are blocked before model inference; a completed response with zero confidence also becomes a `LOW_CONFIDENCE` abstention. The library/retrieval feature remains Phase 3. This phase also does not add reset auditing, logs, a human review queue, export, the visible critic pair, or any production scoring/certification capability.
 
 The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
 
