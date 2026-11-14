@@ -55,6 +55,26 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
+      - name: Launch debug APK on Android API 37 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 37.0
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am force-stop com.thenightmare.local
+            adb shell am start -W -n com.thenightmare.local/.MainActivity
+            sleep 5
+            adb shell pidof com.thenightmare.local
+            if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then
+              adb logcat -d -s AndroidRuntime:E
+              exit 1
+            fi
+
       - name: Verify APK exists and report metadata
         shell: bash
         run: |
