@@ -39,7 +39,7 @@ jobs:
       - name: Install required Android SDK packages
         run: |
           sdkmanager --list --channel=3 | grep -E "platforms;android-37|build-tools;37.0.0" || true
-          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0"
+          sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v3
