@@ -703,12 +703,31 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _fsync_directory_chain(path: Path) -> None:
+def _nearest_existing_ancestor(path: Path) -> Path:
+    """Find the nearest existing path; access errors are not treated as absence."""
     current = Path(path)
     while True:
+        try:
+            current.stat()
+        except FileNotFoundError:
+            parent = current.parent
+            if parent == current:
+                raise
+            current = parent
+            continue
+        return current
+
+
+def _fsync_directory_chain(path: Path, stop_at: Path) -> None:
+    """Sync the output path through its nearest pre-existing ancestor only."""
+    current = Path(path)
+    boundary = Path(stop_at)
+    if boundary != current and boundary not in current.parents:
+        raise ValueError("directory fsync boundary is not an ancestor")
+    while True:
         _fsync_directory(current)
-        if current.parent == current:
-            break
+        if current == boundary:
+            return
         current = current.parent
 
 
@@ -1011,8 +1030,9 @@ def export_project(project_root: Path, output_dir: Path) -> dict:
     if output == root:
         raise ValueError("output directory must not be the project root")
 
+    existing_ancestor = _nearest_existing_ancestor(output)
     output.mkdir(parents=True, exist_ok=True)
-    _fsync_directory_chain(output)
+    _fsync_directory_chain(output, existing_ancestor)
     with _destination_lock(output):
         recovered_complete_pair = _recover_incomplete_export(output)
         folder_path = output / PORTABLE_NAME

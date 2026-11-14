@@ -157,47 +157,70 @@ class _SafeLibraryTree:
             self._raise_io("cannot inspect frozen library entry {}".format(name), exc)
 
     def _open_root(self) -> None:
+        raw_path = os.fspath(self.root)
+        absolute_path = os.path.isabs(raw_path)
+        if absolute_path and os.pardir in raw_path.split(os.sep):
+            raise LibraryError(
+                "absolute frozen library paths must not contain '..' components"
+            )
+
+        cwd_identity = None
+        relative_path = None
+        expected_ancestors = []
+        if absolute_path:
+            # Capture the cwd name and the identities of any ancestors needed
+            # before pinning it. The descriptor is later checked against this
+            # snapshot, so a rename/replacement cannot redirect the absolute
+            # path through a fresh getcwd() result.
+            try:
+                cwd_path = os.getcwd()
+                cwd_identity = os.stat(cwd_path, follow_symlinks=False)
+                if not stat.S_ISDIR(cwd_identity.st_mode):
+                    raise LibraryError("current directory path is not a directory")
+                relative_path = os.path.relpath(raw_path, cwd_path)
+                expected_path = cwd_path
+                for component in relative_path.split(os.sep):
+                    if component != os.pardir:
+                        break
+                    expected_path = os.path.dirname(expected_path)
+                    expected = os.stat(expected_path, follow_symlinks=False)
+                    if not stat.S_ISDIR(expected.st_mode):
+                        raise LibraryError("absolute library path ancestor is not a directory")
+                    expected_ancestors.append((expected_path, expected))
+            except OSError as exc:
+                self._raise_io("cannot resolve absolute frozen library path", exc)
+
+        current_fd = None
         try:
             current_fd = os.open(".", self._flags(directory=True))
             cwd_stat = os.fstat(current_fd)
-            if not self._same_object(cwd_stat, os.stat(".", follow_symlinks=False)):
+            process_cwd_stat = os.stat(".", follow_symlinks=False)
+            if (
+                not self._same_object(cwd_stat, process_cwd_stat)
+                or (
+                    cwd_identity is not None
+                    and not self._same_object(cwd_stat, cwd_identity)
+                )
+            ):
                 os.close(current_fd)
                 raise LibraryError("current directory changed while opening its descriptor")
         except OSError as exc:
+            if current_fd is not None:
+                try:
+                    os.close(current_fd)
+                except OSError:
+                    pass
             self._raise_io("cannot open current directory for library validation", exc)
         self._fds.append(current_fd)
 
-        raw_path = os.fspath(self.root)
-        absolute_path = os.path.isabs(raw_path)
-        if absolute_path:
-            # Ascend from the pinned cwd descriptor to the real filesystem root.
-            # This avoids opening "/" and does not rely on a cwd string that may
-            # become stale if the process directory is renamed concurrently.
-            while True:
-                current_stat = os.fstat(current_fd)
-                try:
-                    expected = os.stat("..", dir_fd=current_fd, follow_symlinks=False)
-                    if not stat.S_ISDIR(expected.st_mode):
-                        raise LibraryError("library path ancestor is not a directory")
-                    child_fd = _openat(current_fd, "..", self._flags(directory=True))
-                    opened = os.fstat(child_fd)
-                except OSError as exc:
-                    self._raise_io("cannot securely open frozen library path ancestor", exc)
-                if not stat.S_ISDIR(opened.st_mode) or not self._same_snapshot(expected, opened):
-                    os.close(child_fd)
-                    raise LibraryError("frozen library path ancestor changed while it was being opened")
-                if self._same_object(current_stat, opened):
-                    os.close(child_fd)
-                    break
-                self._fds.append(child_fd)
-                self.ancestry.append((current_fd, "..", expected, child_fd))
-                current_fd = child_fd
+        path_to_root = relative_path if absolute_path else raw_path
 
         components = [
             part
-            for part in raw_path.split(os.sep)
+            for part in path_to_root.split(os.sep)
             if part and part != os.curdir
         ]
+        ancestor_index = 0
         for index, component in enumerate(components):
             try:
                 expected = os.stat(component, dir_fd=current_fd, follow_symlinks=False)
@@ -208,6 +231,13 @@ class _SafeLibraryTree:
                 ) from exc
             except OSError as exc:
                 self._raise_io("cannot inspect frozen library path", exc)
+            if component == os.pardir and absolute_path:
+                expected_path, expected_ancestor = expected_ancestors[ancestor_index]
+                if not self._same_object(expected, expected_ancestor):
+                    raise LibraryError(
+                        "absolute frozen library path ancestry changed while it was being resolved"
+                    )
+                ancestor_index += 1
             if stat.S_ISLNK(expected.st_mode):
                 raise LibraryError("symbolic links are not allowed in the frozen library path")
             if not stat.S_ISDIR(expected.st_mode):
@@ -384,7 +414,8 @@ class FrozenLibrary:
     SHA-256 values match their current contents. Existing libraries require an
     expected snapshot ID; missing libraries remain ``LIBRARY_UNAVAILABLE``.
     The application only opens these files for reading; changing a snapshot is
-    an explicit offline action.
+    an explicit offline action. Absolute library paths must not contain literal
+    ``..`` components; relative paths remain anchored to the pinned cwd.
     """
 
     def __init__(

@@ -289,6 +289,128 @@ class FrozenLibraryTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
+    def test_absolute_library_path_avoids_denied_intermediate_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            protected = Path(temp_dir) / "data" / "data"
+            files = protected / "com.termux" / "files"
+            termux_tmp = files / "usr" / "tmp" / "pytest-temp"
+            home = files / "home"
+            root = home / "project" / "external-data" / "library"
+            library = make_library(root)
+            termux_tmp.mkdir(parents=True)
+            previous_cwd = os.getcwd()
+            os.chdir(str(termux_tmp))
+            real_openat = library_module._openat
+            protected_stat = protected.stat()
+            denied_ancestor_opens = []
+
+            def deny_protected_parent(directory_fd, name, flags):
+                current = os.fstat(directory_fd)
+                if (
+                    name == ".."
+                    and current.st_dev == protected_stat.st_dev
+                    and current.st_ino == protected_stat.st_ino
+                ):
+                    denied_ancestor_opens.append(name)
+                    raise PermissionError(13, "Permission denied", "intermediate ancestor")
+                return real_openat(directory_fd, name, flags)
+
+            try:
+                with patch.object(library_module, "_openat", side_effect=deny_protected_parent):
+                    snapshot_id = FrozenLibrary(root).validate_for_pin_recovery()
+                self.assertEqual(snapshot_id, library.expected_snapshot_id)
+                self.assertEqual(denied_ancestor_opens, [])
+            finally:
+                os.chdir(previous_cwd)
+
+    def test_absolute_library_path_rejects_parent_component_in_termux_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            protected = Path(temp_dir) / "data" / "data"
+            files = protected / "com.termux" / "files"
+            termux_tmp = files / "usr" / "tmp" / "pytest-temp"
+            project = files / "home" / "project"
+            (project / "nested").mkdir(parents=True)
+            make_library(project / "external-data" / "library")
+            root = project / "nested" / ".." / "external-data" / "library"
+            self.assertIn("..", os.fspath(root))
+            termux_tmp.mkdir(parents=True)
+            previous_cwd = os.getcwd()
+            os.chdir(str(termux_tmp))
+            real_openat = library_module._openat
+            protected_stat = protected.stat()
+            denied_ancestor_opens = []
+
+            def deny_protected_parent(directory_fd, name, flags):
+                current = os.fstat(directory_fd)
+                if (
+                    name == ".."
+                    and current.st_dev == protected_stat.st_dev
+                    and current.st_ino == protected_stat.st_ino
+                ):
+                    denied_ancestor_opens.append(name)
+                    raise PermissionError(13, "Permission denied", "intermediate ancestor")
+                return real_openat(directory_fd, name, flags)
+
+            try:
+                with patch.object(library_module, "_openat", side_effect=deny_protected_parent):
+                    with self.assertRaisesRegex(LibraryError, "absolute frozen library paths must not contain '..'"):
+                        FrozenLibrary(root).validate_for_pin_recovery()
+                self.assertEqual(denied_ancestor_opens, [])
+            finally:
+                os.chdir(previous_cwd)
+
+    def test_absolute_library_path_stays_anchored_when_cwd_is_renamed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            original_cwd = home / "project"
+            replacement_cwd = home / "replacement-project"
+            moved_cwd = home / "project-original"
+            home.mkdir()
+            original_cwd.mkdir()
+            replacement_cwd.mkdir()
+            original_library = make_library(original_cwd / "external-data" / "library")
+            replacement_library = make_library(
+                replacement_cwd / "external-data" / "library",
+                docs=[
+                    (
+                        "DOC-REPLACEMENT",
+                        "replacement.md",
+                        "Replacement guide",
+                        "This replacement corpus is not the original one.\n",
+                    )
+                ],
+            )
+            self.assertNotEqual(
+                original_library.expected_snapshot_id,
+                replacement_library.expected_snapshot_id,
+            )
+            previous_cwd = os.getcwd()
+            os.chdir(str(original_cwd))
+            real_fstat = library_module.os.fstat
+            renamed = [False]
+
+            def rename_cwd_after_descriptor_is_pinned(descriptor):
+                result = real_fstat(descriptor)
+                if not renamed[0]:
+                    renamed[0] = True
+                    original_cwd.rename(moved_cwd)
+                    replacement_cwd.rename(original_cwd)
+                return result
+
+            try:
+                with patch.object(
+                    library_module.os,
+                    "fstat",
+                    side_effect=rename_cwd_after_descriptor_is_pinned,
+                ):
+                    snapshot_id = FrozenLibrary(
+                        original_cwd / "external-data" / "library"
+                    ).validate_for_pin_recovery()
+                self.assertTrue(renamed[0])
+                self.assertEqual(snapshot_id, original_library.expected_snapshot_id)
+            finally:
+                os.chdir(previous_cwd)
+
     def test_relative_library_path_stays_anchored_when_cwd_is_renamed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             home = Path(temp_dir) / "home"

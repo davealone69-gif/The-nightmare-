@@ -394,6 +394,61 @@ class PortableExportTests(unittest.TestCase):
                 self.assertTrue(events[index + 1][1].name.startswith(".nightmare-export-"))
                 self.assertEqual(events[index + 2], ("directory", output))
 
+    def test_export_does_not_fsync_protected_ancestors_above_existing_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            source = parent / "source"
+            source.mkdir()
+            self._make_project(source)
+            output = parent / "out"
+            protected_ancestor = parent.parent
+            attempted_directories = []
+            original_directory_sync = portable_export._fsync_directory
+
+            def deny_protected_ancestor(path):
+                path = Path(path)
+                attempted_directories.append(path)
+                if path == protected_ancestor:
+                    raise PermissionError("protected ancestor is not accessible")
+                return original_directory_sync(path)
+
+            with mock.patch(
+                "tools.export_portable._fsync_directory",
+                side_effect=deny_protected_ancestor,
+            ):
+                export_project(source, output)
+
+            self.assertIn(output, attempted_directories)
+            self.assertIn(parent, attempted_directories)
+            self.assertNotIn(protected_ancestor, attempted_directories)
+            verify_export_pair(output)
+
+    def test_export_fails_closed_when_required_parent_fsync_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            source = parent / "source"
+            source.mkdir()
+            self._make_project(source)
+            output = parent / "out"
+            original_directory_sync = portable_export._fsync_directory
+
+            def deny_required_parent(path):
+                if Path(path) == parent:
+                    raise PermissionError("required parent fsync denied")
+                return original_directory_sync(path)
+
+            with mock.patch(
+                "tools.export_portable._fsync_directory",
+                side_effect=deny_required_parent,
+            ):
+                with self.assertRaisesRegex(PermissionError, "required parent fsync denied"):
+                    export_project(source, output)
+
+            self.assertTrue(output.is_dir())
+            self.assertFalse((output / PORTABLE_NAME).exists())
+            self.assertFalse((output / (PORTABLE_NAME + ".zip")).exists())
+            self.assertFalse((output / MANIFEST_NAME).exists())
+
     def test_noncooperating_destination_creator_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)
