@@ -87,7 +87,7 @@ The Review screen can append a structured record supplied by an external Mandela
 
 ## Current device failure (2026-11-14)
 
-<badge>BLOCKED</badge> The owner reports that the installed app closes immediately on launch on the Samsung Galaxy S24 SM-S921B. Android displays: “THE NIGHTMARE closed because this app has a bug. Try clearing the app's cache first.” Clearing cache has not been confirmed to resolve the failure. This is a real device failure report, not a reproduced or diagnosed stack trace.
+**BLOCKED** The owner reports that the installed app closes immediately on launch on the Samsung Galaxy S24 SM-S921B. Android displays: “THE NIGHTMARE closed because this app has a bug. Try clearing the app's cache first.” Clearing cache has not been confirmed to resolve the failure. This is a real device failure report, not a reproduced or diagnosed stack trace.
 
 Affected branch: `feature/android-native-conversion`
 Affected commit: `7a3472db385c09f56592e32d98d60845ccf3bd85`
