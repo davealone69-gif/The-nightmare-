@@ -85,6 +85,15 @@ Import `config.json` on the Android Settings screen, or enter the current `libra
 
 The Review screen can append a structured record supplied by an external Mandela or Matrix monitor. This is operator-entered event recording only: it does not detect a signal, verify its source, or prove that a machine authored it. The saved record is marked machine-attributed and remains subject to explicit human review. To migrate review history instead, import the copied `mandela.jsonl` and `matrix.jsonl` files from the Review screen first, then import `human-decisions.jsonl`. Human decisions are accepted only when they bind to already-imported monitor observations and their digests match. Reimporting duplicate IDs is refused. Existing `next-episodes.jsonl` events are not imported; reviewed context is recomputed from the imported observations and decisions. The original Termux journals remain unchanged.
 
+## Current device failure (2026-11-14)
+
+<badge>BLOCKED</badge> The owner reports that the installed app closes immediately on launch on the Samsung Galaxy S24 SM-S921B. Android displays: “THE NIGHTMARE closed because this app has a bug. Try clearing the app's cache first.” Clearing cache has not been confirmed to resolve the failure. This is a real device failure report, not a reproduced or diagnosed stack trace.
+
+Affected branch: `feature/android-native-conversion`
+Affected commit: `7a3472db385c09f56592e32d98d60845ccf3bd85`
+
+The reported API 37 debug build and JVM tests do not establish startup/runtime correctness. Do not mark the Android app fixed or release-ready. Root cause is **UNVERIFIED**; installed-app startup is **BLOCKED** pending a symbolicated crash trace or equivalent device bug report and a successful retest. No speculative code change is represented as a fix.
+
 ## Verification status
 
 The Python regression suite and Android local JVM tests run separately. Building the APK does not establish behavior on a physical phone; the Samsung SM-S921B install-and-exercise check is still required and is currently unverified. Android JVM tests cover configuration parsing, frozen-library validation and install rollback, local Ollama HTTP/replay behavior, review provenance, demo-library setup, and portable export integrity.
