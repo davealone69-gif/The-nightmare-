@@ -5,7 +5,13 @@ on:
     branches:
       - feature/android-native-conversion
     paths:
-      - "android/**"
+      - "android/app/**"
+      - "android/build.gradle.kts"
+      - "android/settings.gradle.kts"
+      - "android/gradle/**"
+      - "android/gradle.properties"
+      - "android/gradlew"
+      - "android/gradlew.bat"
       - ".github/workflows/android-ci.yml"
   workflow_dispatch:
 
@@ -55,7 +61,7 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Launch debug APK on Android API 37 emulator
+      - name: Launch debug APK on Android API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
