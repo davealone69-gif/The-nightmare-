@@ -94,3 +94,18 @@ The broader design proposal remains limited to still-image quality review and ex
 ## Native Android app
 
 A separate native Kotlin Android client is included in this feature branch under [`android/`](android/README.md). It preserves the Python standard-library Termux CLI and its data while providing native task, review, frozen-library setup/repin, and local portable-export workflows. It uses only a loopback local Ollama service; the portable export is explicitly user-triggered and shares only after pair verification. SAF does not expose the Python exporter's descriptor-relative `O_NOFOLLOW` primitive, so native filesystem-import/export parity is partial; see the Android guide for the exact boundary. Android targets API 37, but installation and exercise on the Samsung Galaxy S24 SM-S921B remain unverified. The broader detector, daily canary, critic, and deployment gates are still not implemented.
+
+## Owner phone-test handover — 2026-11-14
+
+**PARTIAL / BLOCKED — Android startup crash reported; root cause UNVERIFIED.**
+
+The owner reports that the installed THE NIGHTMARE app on a Samsung Galaxy S24 (SM-S921B, API 37) closes immediately at startup. Android displays: “THE NIGHTMARE closed because this app has a bug. Try clearing the app's cache first, and then reopen it.” The phone provides no exception details or stack trace in that dialog.
+
+- This is an observed owner-reported runtime failure, not a confirmed diagnosis.
+- Clearing the app cache may be tried, but no result has been reported yet. Do not assume it fixes the crash.
+- Startup investigation should include Android process-startup components, including manifest-declared providers, as well as the Activity startup path. These are investigation leads only, not established causes.
+- Existing Python/JVM test and debug-build results do not prove that the installed app launches.
+- No application-code fix is verified. Do not mark Android complete until a corrected build installs and launches successfully on the owner's phone.
+- When work resumes, reproduce against the exact tested commit, capture a crash report/Logcat if available, fix the evidenced exception, run relevant tests/build, and update this handover with commit and runtime evidence.
+
+The owner has requested a pause; no further testing or action is expected from them until they are ready.
