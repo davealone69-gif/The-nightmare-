@@ -37,7 +37,9 @@ jobs:
           packages: platform-tools
 
       - name: Install required Android SDK packages
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+        run: |
+          sdkmanager --list --channel=3 | grep -E "platforms;android-37|build-tools;37.0.0" || true
+          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0"
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v3
@@ -72,7 +74,7 @@ jobs:
 
       - name: Upload test and build reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: the-nightmare-android-build-reports
           path: |
