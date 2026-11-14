@@ -113,3 +113,15 @@ Android's Storage Access Framework does not expose the descriptor-relative `O_NO
 - GitHub's combined commit-status query for the Android conversion commit returned no status entries. This is not build or runtime evidence.
 
 No code fix has been made. The inspected startup path has not exposed a conclusive fault, and no crash stack trace is available. Next diagnostic step is to obtain the Android crash trace/bug report for the exact installed APK, then reproduce and fix the evidenced exception. Physical launch on SM-S921B remains **BLOCKED / UNVERIFIED** until a corrected build is installed and launched successfully.
+
+## Android build and startup investigation (2026-11-14)
+
+**REAL + VERIFIED — GitHub build:** Run [#43606464397](https://github.com/davealone69-gif/The-nightmare-/actions/runs/43606464397), commit `e521582fd2624934450adf01b6abee159308edb2`, completed successfully. Android JVM test report: **47 tests, 0 failures, 0 errors, 0 skipped**. `:app:assembleDebug` succeeded and produced `app-debug.apk` (1,075,723 bytes). APK SHA-256: `d39fcee856726f2fdb8be8fbfe1d2e69ace5a31d04bce85700b09364467817ad`. The APK is a debug build, not a release-signed artifact.
+
+**PARTIAL — runtime:** An API 37 emulator attempt did not start because the emulator action requested SDK package `platforms;android-37`, while the available SDK platform package is `platforms;android-37.0`. This was an emulator setup failure before APK installation, not an app crash. A generic API 36 emulator startup smoke check is being retried in GitHub Actions; it is not a Galaxy S24 test.
+
+**Startup code review:** The launcher manifest resolves to `com.thenightmare.local.MainActivity`; Gradle namespace/application ID and Kotlin package match. There is no custom Application class or startup network request. `MainActivity.onCreate()` loads `SettingsStore`, schedules abandoned staging cleanup on its background executor, configures system bars, then renders the initial Task page. Cleanup catches ordinary exceptions; the initial Task page creates native views and does not invoke Ollama. The manifest provider's `onCreate()` only returns `true`. No conclusive exception or root cause was found in the inspected startup path.
+
+**Test coverage gap:** The 47 passing tests are JVM tests for rules, local harness behavior, library validation, export, review storage, and settings parsing. They do not instantiate `MainActivity` or verify an Android Activity launch. Emulator smoke testing is being added to CI to close part of that gap.
+
+**UNVERIFIED / BLOCKED — owner device:** The reported Samsung Galaxy S24 SM-S921B startup crash remains undiagnosed. No code fix has been made. A successful CI build or emulator launch cannot establish a fix on the phone. Root cause requires the exact installed APK's Android crash trace/bug report, followed by a successful install-and-launch retest on the S24.
