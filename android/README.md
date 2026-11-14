@@ -101,3 +101,15 @@ The Python regression suite and Android local JVM tests run separately. Building
 ## Android SAF security boundary
 
 Android's Storage Access Framework does not expose the descriptor-relative `O_NOFOLLOW`/`openat` primitive used by the Python exporter. The native app accepts only the built-in on-device external-storage provider, requires opened file descriptors to be regular files, bounds reads, rechecks descriptor and provider metadata, and rereads content before export. Those checks detect many changes but cannot prove physical containment: a provider may resolve a link before returning the descriptor, and SAF exposes no portable way for the app to verify that the opened inode lies beneath the selected tree. Android's app-private library validator also uses pathname traversal and is not race-proof against a concurrent same-UID mutation. The share provider exposes only app-private verified outputs; other apps cannot normally mutate that private storage, but atomic path-to-descriptor binding is not claimed. Use only trusted local folders, treat the secret scan as heuristic, and review an archive before sharing. No broad all-files access is requested. These Android boundaries are **PARTIAL parity** until hardened or verified on the target Android device and provider behavior.
+
+## Startup crash investigation update (2026-11-14)
+
+**PARTIAL / BLOCKED — root cause remains UNVERIFIED.** Read-only source inspection was performed on `feature/android-native-conversion`:
+
+- The Gradle `namespace` and `applicationId` are both `com.thenightmare.local`, matching the Kotlin package and relative manifest Activity name.
+- The manifest-declared `PortableExportProvider` has an `onCreate()` implementation that simply returns `true`; no provider startup failure is established by the inspected code.
+- `MainActivity.onCreate()` calls `super.onCreate()`, loads `SettingsStore`, schedules abandoned-library cleanup on its single-thread executor, configures system-bar appearance, then calls `render()`.
+- The cleanup is scheduled on the background executor. This inspection does not establish that it causes the reported process exit.
+- GitHub's combined commit-status query for the Android conversion commit returned no status entries. This is not build or runtime evidence.
+
+No code fix has been made. The inspected startup path has not exposed a conclusive fault, and no crash stack trace is available. Next diagnostic step is to obtain the Android crash trace/bug report for the exact installed APK, then reproduce and fix the evidenced exception. Physical launch on SM-S921B remains **BLOCKED / UNVERIFIED** until a corrected build is installed and launched successfully.
