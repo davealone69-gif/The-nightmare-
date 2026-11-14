@@ -61,26 +61,6 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Launch debug APK on Android API 36 emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 36
-          target: google_apis
-          arch: x86_64
-          disable-animations: true
-          script: |
-            set -euo pipefail
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            adb logcat -c
-            adb shell am force-stop com.thenightmare.local
-            adb shell am start -W -n com.thenightmare.local/.MainActivity
-            sleep 5
-            adb shell pidof com.thenightmare.local
-            if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then
-              adb logcat -d -s AndroidRuntime:E
-              exit 1
-            fi
-
       - name: Verify APK exists and report metadata
         shell: bash
         run: |
@@ -98,6 +78,44 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Launch debug APK on Android API 36 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p android/smoke-diagnostics
+            # Capture diagnostics even if install, launch, or pidof fails. The emulator
+            # is ephemeral; these logs must be collected before the action stops it.
+            collect_diagnostics() {
+              status=$?
+              trap - EXIT
+              set +e
+              adb logcat -d -b crash -v threadtime > android/smoke-diagnostics/crash.log 2>&1
+              adb logcat -d -s AndroidRuntime:E ActivityTaskManager:W ActivityManager:W -v threadtime > android/smoke-diagnostics/runtime.log 2>&1
+              adb shell dumpsys activity activities > android/smoke-diagnostics/activities.txt 2>&1
+              if [ "$status" -ne 0 ]; then
+                echo "Android smoke test failed (exit $status). Crash and runtime logs:"
+                cat android/smoke-diagnostics/crash.log android/smoke-diagnostics/runtime.log
+              fi
+              exit "$status"
+            }
+            trap collect_diagnostics EXIT
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -b all -c
+            adb shell am force-stop com.thenightmare.local
+            adb shell am start -W -n com.thenightmare.local/.MainActivity | tee android/smoke-diagnostics/launch.txt
+            sleep 5
+            adb shell pidof com.thenightmare.local
+            adb logcat -d -b crash > android/smoke-diagnostics/crash-check.log
+            if grep -Fq 'Process: com.thenightmare.local' android/smoke-diagnostics/crash-check.log; then
+              echo "The app produced a crash in the emulator."
+              exit 1
+            fi
+
       - name: Upload test and build reports
         if: always()
         uses: actions/upload-artifact@v5
@@ -106,5 +124,14 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload emulator smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: the-nightmare-android-smoke-diagnostics
+          path: android/smoke-diagnostics/
           if-no-files-found: ignore
           retention-days: 14

@@ -16,6 +16,20 @@ The installable debug APK is `app/build/outputs/apk/debug/app-debug.apk`. Debug 
 
 The standalone Android build compiles and targets API 37 (Android 17), with minimum API 26, using AGP 9.5 and its built-in Kotlin support. It is intended for the Samsung Galaxy S24 SM-S921B, but that phone has not been used for an install-and-exercise check; real-device behavior remains **UNVERIFIED**.
 
+## In-app getting started guide
+
+Tap **How to use** at the top of any screen for the setup and usage steps. Each screen also explains its next actions. On Run, **Fill in a demo library question** fills the task box without running it; it asks before replacing an existing task. Create the demo library first and configure a running local model to try that example. Review remains optional.
+
+## 3D expertise practice
+
+The **Train** tab provides practice prompts for renderer debugging, shader/material reasoning, photorealistic synthetic avatars, and phone performance. Select a prompt to place it on the Run screen; the app asks before replacing an existing task and never runs it automatically. You can save your own instruction/reference-answer examples with source and permission notes, edit or delete them, and explicitly mark them reviewed. Editing a reviewed example returns it to draft. The examples are stored in app-private storage and are not automatically sent to the model, inserted into the frozen library, shared with 3D Mega Hub, or exported. Uninstalling or clearing app data may delete them.
+
+**Blank specialists:** On Train, choose **Create blank specialist**. Give it a name; model ID and instructions start empty. Add your own instructions and optionally name an existing local model, or leave the model blank to use Settings. Practice sends a single request using that profile, outside the three-worker pipeline. A checkbox explicitly includes all reviewed examples (up to eight and 16 KB); drafts and source/permission notes are not sent. Instructions, the task and checked example text go to the configured loopback server. The server may retain data or model state; these profiles do not enforce process isolation. Closing the dialog does not cancel an already-started request. Responses are unverified. Profiles are app-private and deleting one does not delete a model or examples.
+
+Each specialist also has a **Run fixed 10-prompt contract suite** button. It checks the structured answer/abstention format and selected no-evidence abstentions; it does not verify answers or 3D work. The suite is manual and session-only, and the selected model name is not a weight hash. See [the contract and suite limits](../docs/specialist-output-contract.md).
+
+**This is practice and data preparation, not model training:** it does not update model weights, and approval is only an operator label, not proof of rights or accuracy. Profile names/model IDs do not create separate model weights. Review any model answer against your reference yourself. Training from blank weights and generating fine-tuned adapters are unavailable: the compatible on-phone trainer, model, and S24 feasibility remain unverified. The two apps remain separate. The Train screen and storage require an Android build and device test; JVM tests do not exercise Android storage or UI.
+
 ## Connect to local Ollama
 
 Start Ollama in Termux on the same phone and set the app's model identifier to an installed model. The default base URL is `http://127.0.0.1:11434/v1`. Keep it unless the local service uses another allowed loopback host, port, or path. The Android app refuses remote hostnames, remote IP addresses, and other loopback aliases outside its explicit allowlist.
@@ -125,3 +139,30 @@ No code fix has been made. The inspected startup path has not exposed a conclusi
 **Test coverage gap:** The 47 passing tests are JVM tests for rules, local harness behavior, library validation, export, review storage, and settings parsing. They do not instantiate `MainActivity` or verify an Android Activity launch. Emulator smoke testing is being added to CI to close part of that gap.
 
 **UNVERIFIED / BLOCKED — owner device:** The reported Samsung Galaxy S24 SM-S921B startup crash remains undiagnosed. No code fix has been made. A successful CI build or emulator launch cannot establish a fix on the phone. Root cause requires the exact installed APK's Android crash trace/bug report, followed by a successful install-and-launch retest on the S24.
+
+## Collecting a startup crash trace
+
+The latest emulator smoke run [#43607067584](https://github.com/davealone69-gif/The-nightmare-/actions/runs/43607067584) failed at the launch step after the JVM tests and APK build passed. The job metadata alone does not identify whether the emulator, installation, launch, or app failed. Its detailed logs were not accessible during this investigation, so this is not evidence of the phone crash's cause. The CI smoke step now saves its launch output, crash buffer, Android runtime log and activity state even when a command fails; a failure before the script starts may still yield no diagnostics. The APK is uploaded before the smoke step so an emulator failure does not hide a successful build. This change has not yet been exercised in CI.
+
+For the reported phone crash, preserve the exact installed APK and obtain a trace before clearing app data or reinstalling. With USB debugging enabled and an authorized computer with Android platform-tools, reproduce the crash and run:
+
+```sh
+adb logcat -d -b crash -v threadtime > nightmare-crash.txt
+adb shell dumpsys package com.thenightmare.local > nightmare-package.txt
+```
+
+If the crash buffer is empty, capture `adb logcat -d -v threadtime` immediately after reproducing instead, or use Android's developer-options bug report. Include the exception and complete `Caused by` chain, Android version, approximate crash time, and the SHA-256 of the APK installed (if available). Logs and bug reports can contain personal data, paths, or information about other apps: review and redact them before sharing, while retaining the exception and stack trace. These commands read diagnostics; they do not clear app data. The phone failure remains unverified until a trace identifies the cause and a corrected build is retested on the device.
+
+### Phone usability test checklist
+
+The setup assistant is offered on first launch, and can be reopened from any screen. Close it to work on the current step, then reopen it and select Next; progress is self-reported, not automatically verified. Skip or Finish prevents the automatic first-launch prompt; reopening remains available. The latest connection result is session-only and tests the endpoint, not the installed model or continued availability. Advanced Run options remain active when hidden.
+
+On the Galaxy S24, install a debug build without clearing existing app data and check:
+
+1. Launch, close and reopen the setup assistant, follow each step, and verify Skip/Finish and the unsaved-settings warning. Restart the app and confirm the first-launch prompt stays dismissed after Skip/Finish.
+2. With Ollama stopped, test the connection and check the error and next steps. Start Ollama, test again, then change and save the URL or model and confirm the previous result is no longer presented as current.
+3. Create the optional demo library, use the example task, and run it with a locally installed model. Check completed, abstained and citation-warning explanations against the actual result.
+4. Expand and collapse Advanced, edit its fields, navigate between tabs and run a task; confirm hidden options stay active and task drafts are preserved. Check Review's optional workflow.
+5. Repeat with larger system font/display sizes, portrait and landscape, and the keyboard open. Check that buttons, dialogs and results can be read and scrolled. Record Android version and APK hash, and capture a crash trace if anything closes.
+
+These checks require a physical device and a running model; they have not been performed by the repository's JVM tests.

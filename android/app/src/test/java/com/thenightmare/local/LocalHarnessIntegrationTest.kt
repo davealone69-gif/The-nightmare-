@@ -39,6 +39,54 @@ class LocalHarnessIntegrationTest {
     )
 
     @Test
+    fun specialistUsesSelectedModelAndOnlyExplicitReviewedExamples() {
+        val requests = Collections.synchronizedList(mutableListOf<String>())
+        val content = JSONObject().put("schema_version", 1).put("outcome", "ANSWER").put("answer", "Practice answer").put("reason", "").put("confidence", 0.5).toString()
+        val body = JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString()
+        val server = startServer { exchange ->
+            requests.add(exchange.requestBody.use { String(it.readBytes(), StandardCharsets.UTF_8) })
+            respond(exchange, 200, body)
+        }
+        try {
+            val profile = SpecialistProfile("12345678-1234-1234-1234-123456789abc", "Shader", "specialist-model", "Explain roughness")
+            val example = TrainingExample("abcdefab-1234-1234-1234-123456789abc", "Question", "Reference", "Private permission note", true)
+            assertEquals("Practice answer", LocalHarness.runSpecialist(profile, "Explain", listOf(example), settings(server)).answer)
+            val request = JSONObject(requests.single())
+            assertEquals("specialist-model", request.getString("model"))
+            assertTrue(request.toString().contains("Reference"))
+            assertFalse(request.toString().contains("Private permission note"))
+            assertThrows(IllegalArgumentException::class.java) { LocalHarness.runSpecialist(profile, "Explain", listOf(example.copy(approved = false)), settings(server)) }
+            assertEquals(1, requests.size)
+        } finally { server.stop(0) }
+    }
+
+    @Test
+    fun fixedSuiteSendsAllTenPromptsToMockModelInOrder() {
+        val requests = Collections.synchronizedList(mutableListOf<String>())
+        val server = startServer { exchange ->
+            val request = exchange.requestBody.use { String(it.readBytes(), StandardCharsets.UTF_8) }
+            requests.add(request)
+            val index = requests.size - 1
+            val abstain = SpecialistFixedSuite.cases[index].abstainRequired
+            val response = JSONObject().put("schema_version", 1).put("outcome", if (abstain) "ABSTAIN" else "ANSWER")
+                .put("answer", if (abstain) "" else "Unverified suggestion")
+                .put("reason", if (abstain) "Required evidence is missing" else "").put("confidence", 0.5)
+            respond(exchange, 200, JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", response.toString())))).toString())
+        }
+        try {
+            val profile = SpecialistProfile("12345678-1234-1234-1234-123456789abc", "Shader")
+            val results = SpecialistFixedSuite.run { LocalHarness.runSpecialist(profile, it.prompt, emptyList(), settings(server)) }
+            assertEquals(10, results.size)
+            assertTrue(results.all { it.passed })
+            assertEquals(10, requests.size)
+            requests.forEachIndexed { index, raw ->
+                val user = JSONObject(raw).getJSONArray("messages").getJSONObject(1).getString("content")
+                assertTrue(user.contains(SpecialistFixedSuite.cases[index].prompt))
+            }
+        } finally { server.stop(0) }
+    }
+
+    @Test
     fun non2xxEndpointAndModelResponsesFailAndExceptionPathStillResetsDeclaredState() {
         val server = startServer { exchange -> respond(exchange, 503, "{\"error\":\"test unavailable\"}") }
         val root = Files.createTempDirectory("nightmare-unavailable-library").toFile()

@@ -2,6 +2,10 @@
 
 A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
+## Intended direction
+
+The owner's goal is to develop AI expertise in 3D rendering, shaders, and photorealistic avatar creation for the separate [3D Mega Hub](https://github.com/davealone69-gif/3d-mega-hub) project. The apps must remain independent. The current app is an early text-only harness, not yet a 3D engine, image evaluator, model trainer, or integration with 3D Mega Hub. See the [training roadmap](docs/3d-mega-hub-training-roadmap.md) and [branch inventory](docs/branch-inventory.md) for the inspected baselines, proposed stages and outstanding decisions.
+
 ## Project status
 
 Phases 1–5 are integrated; Phase 6 portable export is implemented in this feature-branch candidate. Phase 3 is still awaiting the owner's test in Termux. Phase 4 adds a declared in-process reset-state audit and an opt-in `--audit-replay --seed N` path that compares repeated harness-state snapshots. Phase 5 adds a limited local human-review queue. Episodes route through Retriever, Analyst, then Formatter. The Retriever searches only a frozen, read-only text library outside the code tree, verifies source hashes, returns matching excerpts with stable IDs, and abstains when requested evidence is unavailable. Completed answers show their local source paths and are classified `CITED`, `UNCITED`, `INVALID`, or `NOT_REQUIRED`; uncited and unknown-source citations are visibly warned. Citation classification checks reference IDs, not whether every claim is true. Worker confidence remains uncalibrated, not a certified score.

@@ -16,6 +16,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -35,7 +36,7 @@ import java.nio.file.LinkOption
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private enum class Page { TASK, LIBRARY, REVIEW, SETTINGS }
+    private enum class Page { TASK, TRAINING, LIBRARY, REVIEW, SETTINGS }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
@@ -69,6 +70,10 @@ class MainActivity : Activity() {
     private var lastRunError: String? = null
     private var runningMessage = "Preparing the local episode…"
     private var runningProgressText: TextView? = null
+    private var advancedExpanded = false
+    private var setupStep = 0
+    private var connectionStatus = "Not tested in this session."
+    private var connectionStatusView: TextView? = null
     private var settingsLoadWarning: String? = null
     private var libraryInfoCacheKey: String? = null
     private var libraryInfoCache: LibraryInfo? = null
@@ -90,6 +95,9 @@ class MainActivity : Activity() {
             )
         }
         render()
+        if (savedInstanceState == null && !getPreferences(MODE_PRIVATE).getBoolean("setup_done", false)) {
+            mainHandler.post { if (!isFinishing && !isDestroyed) showSetupStep(0) }
+        }
     }
 
     override fun onDestroy() {
@@ -188,14 +196,26 @@ class MainActivity : Activity() {
             if (settings.model.isBlank()) "Local only · configure an Ollama model to begin" else "Local only · ${settings.model}",
             12, 0xFFB9D9C8.toInt(),
         ))
+        val helpButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val guide = smallButton("How to use")
+        guide.setOnClickListener { showGettingStartedGuide() }
+        helpButtons.addView(guide, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
+        val setup = smallButton("Setup assistant")
+        setup.setOnClickListener { showSetupStep(setupStep) }
+        helpButtons.addView(setup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(helpButtons, matchWrap(top = 6))
         root.addView(header)
 
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, dp(10))
         }
-        listOf(Page.TASK to "Run", Page.LIBRARY to "Library", Page.REVIEW to "Review", Page.SETTINGS to "Settings").forEach { (page, title) ->
-            val button = smallButton(title, selected = currentPage == page)
+        listOf(Page.TASK to "Run", Page.TRAINING to "Train", Page.LIBRARY to "Library", Page.REVIEW to "Review", Page.SETTINGS to "Settings").forEach { (page, title) ->
+            val button = smallButton(title, selected = currentPage == page).apply {
+                minWidth = 0
+                textSize = 11f
+                setPadding(dp(2), dp(5), dp(2), dp(5))
+            }
             button.setOnClickListener { saveTaskDraft(); currentPage = page; render() }
             nav.addView(button, LinearLayout.LayoutParams(0, dp(43), 1f).apply {
                 if (page != Page.SETTINGS) marginEnd = dp(6)
@@ -211,14 +231,79 @@ class MainActivity : Activity() {
 
         when (currentPage) {
             Page.TASK -> showTaskPage()
+            Page.TRAINING -> showTrainingPage()
             Page.LIBRARY -> showLibraryPage()
             Page.REVIEW -> showReviewPage()
             Page.SETTINGS -> showSettingsPage()
         }
     }
 
+    private fun showSetupStep(step: Int) {
+        setupStep = step
+        val titles = listOf("Start the local server", "Set up your model", "Add sources (optional)", "Run your first task")
+        val instructions = listOf(
+            "In Termux, start Ollama on this phone and install a model. Return here when it is running. The app cannot start Ollama for you.",
+            "Open Settings and enter the exact name of your installed model. Keep the default URL unless you changed the server address. Save the form and test the connection. The test checks the endpoint, not whether the model is installed. Return to this assistant to continue.",
+            "For source-backed questions, open Library and create the demo library or import a trusted on-device folder. Review and confirm the installation. You can skip this step for tasks that do not need sources.",
+            "Open Run, type a task and tap Run locally. For the demo question, first install the demo library. Read the result and verify any cited sources yourself."
+        )
+        val pages = listOf(Page.TASK, Page.SETTINGS, Page.LIBRARY, Page.TASK)
+        AlertDialog.Builder(this)
+            .setTitle("Setup ${step + 1} of ${titles.size}: ${titles[step]}")
+            .setMessage(instructions[step] + "\n\nYour progress is not automatically verified. Save any settings before leaving that screen.")
+            .setNegativeButton(if (step == 0) "Skip assistant" else "Back") { _, _ ->
+                if (step == 0) getPreferences(MODE_PRIVATE).edit().putBoolean("setup_done", true).apply()
+                else showSetupStep(step - 1)
+            }
+            .setNeutralButton("Close") { _, _ -> }
+            .setPositiveButton(if (step == titles.lastIndex) "Finish" else "Next") { _, _ ->
+                if (step == titles.lastIndex) {
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("setup_done", true).apply()
+                } else {
+                    val next = step + 1
+                    val proceed = {
+                        if (currentPage == Page.TASK) saveTaskDraft()
+                        currentPage = pages[next]
+                        render()
+                        showSetupStep(next)
+                    }
+                    if (currentPage == Page.SETTINGS && pages[next] != Page.SETTINGS) {
+                        AlertDialog.Builder(this).setTitle("Leave Settings?")
+                            .setMessage("Unsaved changes in the form will be lost. Save settings before continuing if you want to keep them.")
+                            .setNegativeButton("Stay", null)
+                            .setPositiveButton("Continue") { _, _ -> proceed() }.show()
+                    } else proceed()
+                }
+            }.show()
+    }
+
+    private fun showGettingStartedGuide() {
+        AlertDialog.Builder(this)
+            .setTitle("Your step-by-step guide")
+            .setMessage(
+                "1. Start Ollama in Termux on this phone and make sure a model is installed. " +
+                    "In Settings, enter that model's exact name. Keep the default local URL unless you changed the server address. " +
+                    "Tap Save settings, then Test local server connection. The test also saves the form.\n\n" +
+                    "2. Optional: open Library and create the demo library, or select a trusted local folder of .md or .txt files. " +
+                    "Review the preview and confirm installation. A library is needed for source-backed questions, not every task.\n\n" +
+                    "3. Open Run, write your task, and tap Run locally. The example button fills in a sample; it does not run it. " +
+                    "Wait for the result. If the app abstains, read the reason and try a supported request.\n\n" +
+                    "4. Check the answer and any sources yourself. A citation ID does not prove that an answer is correct. " +
+                    "Current or live information is not available.\n\n" +
+                    "5. Review is optional. It is for importing or recording external monitor observations and making human decisions; " +
+                    "the app does not run a monitor itself."
+            )
+            .setPositiveButton("Got it", null)
+            .show()
+    }
+
     private fun showTaskPage() {
         addTitle("Start a local episode", "A task runs Retriever → Analyst → Formatter. Live-data requests and unsupported source requests safely abstain.")
+        content?.addView(infoCard("GET STARTED", if (settings.model.isBlank()) {
+            "First, start Ollama on this phone and add your installed model name in Settings. Tap How to use above for all steps."
+        } else {
+            "Next, write a task below. For questions about local documents, first add a library on the Library tab. Tap How to use for help."
+        }), matchWrap(bottom = 10))
         val taskCard = card()
         taskCard.addView(label("TASK TEXT"))
         taskInput = editBox("Write a self-contained task…", multiline = true).apply {
@@ -227,6 +312,32 @@ class MainActivity : Activity() {
             setText(taskDraft)
         }
         taskCard.addView(taskInput, matchWrap(top = 7))
+        val example = smallButton("Fill in a demo library question")
+        example.setOnClickListener {
+            val sample = "According to the local guide, what light does a tree fern need? Cite the source."
+            if (taskInput?.text?.isNotBlank() == true) {
+                AlertDialog.Builder(this).setTitle("Replace your task?")
+                    .setMessage("This replaces the text in the task box with the demo question. It does not run the task.")
+                    .setNegativeButton("Keep my task", null)
+                    .setPositiveButton("Use example") { _, _ -> taskInput?.setText(sample) }.show()
+            } else {
+                taskInput?.setText(sample)
+            }
+        }
+        taskCard.addView(example, matchWrap(top = 7))
+        taskCard.addView(text("For this example, first create the demo library on the Library tab. You still need a running local model.", 12, MUTED), matchWrap(top = 4))
+        val toggleAdvanced = smallButton(if (advancedExpanded) "Hide advanced options" else "Show advanced options")
+        val advanced = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (advancedExpanded) View.VISIBLE else View.GONE
+        }
+        toggleAdvanced.setOnClickListener {
+            advancedExpanded = !advancedExpanded
+            advanced.visibility = if (advancedExpanded) View.VISIBLE else View.GONE
+            toggleAdvanced.text = if (advancedExpanded) "Hide advanced options" else "Show advanced options"
+        }
+        taskCard.addView(toggleAdvanced, matchWrap(top = 8))
+        taskCard.addView(text("Hidden options remain active if you selected them.", 12, MUTED), matchWrap(top = 3))
         replayCheck = CheckBox(this).apply {
             text = "Run twice and compare declared app state"
             setTextColor(0xFFE1DCE8.toInt())
@@ -234,12 +345,12 @@ class MainActivity : Activity() {
             buttonTintList = android.content.res.ColorStateList.valueOf(ACCENT)
             isChecked = replayDraft
         }
-        taskCard.addView(replayCheck, matchWrap(top = 10))
+        advanced.addView(replayCheck, matchWrap(top = 10))
         replaySeedInput = editBox("Replay seed (integer metadata only)", multiline = false, numeric = true, signed = true).apply {
             setText(replaySeedDraft)
         }
-        taskCard.addView(replaySeedInput, matchWrap(top = 5))
-        taskCard.addView(text("The seed is recorded only in the declared-state audit; it is never sent to Ollama.", 12, MUTED), matchWrap(top = 3))
+        advanced.addView(replaySeedInput, matchWrap(top = 5))
+        advanced.addView(text("The seed is recorded only in the declared-state audit; it is never sent to Ollama.", 12, MUTED), matchWrap(top = 3))
         useReviewContextCheck = CheckBox(this).apply {
             text = "Include fully reviewed context from a prior episode"
             setTextColor(0xFFE1DCE8.toInt())
@@ -247,15 +358,16 @@ class MainActivity : Activity() {
             buttonTintList = android.content.res.ColorStateList.valueOf(ACCENT)
             isChecked = reviewContextDraft
         }
-        taskCard.addView(useReviewContextCheck, matchWrap(top = 3))
+        advanced.addView(useReviewContextCheck, matchWrap(top = 3))
         sourceEpisodeInput = editBox("Source episode ID", multiline = false).apply { setText(sourceEpisodeDraft) }
-        taskCard.addView(sourceEpisodeInput, matchWrap(top = 4))
+        advanced.addView(sourceEpisodeInput, matchWrap(top = 4))
         nextEpisodeInput = editBox("New episode ID", multiline = false).apply { setText(nextEpisodeDraft) }
-        taskCard.addView(nextEpisodeInput, matchWrap(top = 7))
-        taskCard.addView(text(
+        advanced.addView(nextEpisodeInput, matchWrap(top = 7))
+        advanced.addView(text(
             "Only approved findings and explicit human edits are included. Rejected findings are excluded; pending monitor items block preparation.",
             12, MUTED,
         ).apply { setPadding(dp(3), dp(6), 0, 0) }, matchWrap(top = 2))
+        taskCard.addView(advanced, matchWrap())
         content?.addView(taskCard, matchWrap())
 
         val run = primaryButton(if (isRunInProgress) "Running on this phone…" else "Run locally").apply { isEnabled = !isRunInProgress }
@@ -271,7 +383,7 @@ class MainActivity : Activity() {
             content?.addView(infoCard("SETUP NEEDED", "Open Settings and enter the identifier of a model already installed in Ollama. Requests go only to a loopback address on this phone."), matchWrap(top = 10))
         }
         lastEpisodeResult?.let { content?.addView(resultCard(it), matchWrap(top = 14)) }
-        lastRunError?.let { content?.addView(infoCard("RUN STOPPED", it), matchWrap(top = 14)) }
+        lastRunError?.let { content?.addView(infoCard("RUN STOPPED", "$it\n\nCheck your model name and that Ollama is running, then test the connection in Settings. If the message concerns a library or review record, check the relevant tab before retrying."), matchWrap(top = 14)) }
     }
 
     private fun saveTaskDraft() {
@@ -315,14 +427,14 @@ class MainActivity : Activity() {
                     lastEpisodeResult = result
                     lastRunError = null
                     isRunInProgress = false
-                    if (currentPage == Page.TASK) render()
+                    if (currentPage == Page.TASK) { saveTaskDraft(); render() }
                 }
             } catch (exception: Exception) {
                 postUi {
                     lastEpisodeResult = null
                     lastRunError = exception.message ?: "The local episode could not complete."
                     isRunInProgress = false
-                    if (currentPage == Page.TASK) render()
+                    if (currentPage == Page.TASK) { saveTaskDraft(); render() }
                 }
             }
         }
@@ -354,6 +466,7 @@ class MainActivity : Activity() {
                 ))
                 else -> Unit
             }
+            root.addView(text("Check the answer against its sources. A citation ID alone does not prove a claim is correct; missing or invalid citations need particular care.", 12, MUTED))
             if (result.workers.lastOrNull()?.extractiveFallback == true) {
                 root.addView(text("Answer mode: extractive fallback (verified local excerpt)", 12, MUTED))
             }
@@ -364,6 +477,14 @@ class MainActivity : Activity() {
             }
         } else {
             root.addView(text("Reason: ${result.reason}", 14, 0xFFFFD28B.toInt()).apply { setPadding(0, dp(8), 0, 0) })
+            val advice = when (result.reason) {
+                "LIBRARY_UNAVAILABLE" -> "Live information is unavailable. For a source-backed question, add and verify a library, then try again."
+                "LIBRARY_UNPINNED", "LIBRARY_INTEGRITY_FAILURE" -> "Open Library to check the snapshot and pin. Do not repin unexpected changes without reviewing them."
+                "NO_RELEVANT_SOURCE" -> "No matching passage was found. Try different wording or add relevant documents to a trusted library."
+                "LOW_CONFIDENCE", "INVALID_RESPONSE" -> "The local model could not provide an acceptable response. Try a simpler task or check your model setup."
+                else -> "Read the reason above and try a more specific task or provide relevant local sources."
+            }
+            root.addView(text(advice, 13, MUTED).apply { setPadding(0, dp(8), 0, 0) })
         }
         if (result.resetAuditPassed == true) {
             root.addView(text("Declared app-state reset audit: PASS · model-server and OS state are not inspected", 12, 0xFF9EE3B3.toInt()).apply { setPadding(0, dp(10), 0, 0) })
@@ -375,8 +496,308 @@ class MainActivity : Activity() {
         return root
     }
 
+    private fun showTrainingPage() {
+        addTitle("3D expertise practice", "Build skills for rendering, shaders and photorealistic avatars. THE NIGHTMARE and 3D Mega Hub remain separate apps.")
+        content?.addView(infoCard("WHAT THIS DOES", "Practice with your existing local model and save your own instruction and reference-answer examples. This does not fine-tune or change model weights. A compatible on-phone trainer and model have not been selected or verified."), matchWrap(bottom = 10))
+        content?.addView(infoCard("YOUR SPECIALISTS", "Create an empty profile, then give it a name, optional model and your own instructions. Profiles can share one existing model or name different locally installed models. This is prompt-based practice, not weight training; it does not create a blank model or an adapter."), matchWrap(bottom = 8))
+        val addSpecialist = primaryButton("Create blank specialist")
+        addSpecialist.setOnClickListener { showSpecialistEditor(null) }
+        content?.addView(addSpecialist, matchWrap(bottom = 8))
+        val specialistList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content?.addView(specialistList, matchWrap(bottom = 10))
+        executor.execute {
+            try {
+                val profiles = SpecialistStore(this).list()
+                postUi {
+                    if (currentPage == Page.TRAINING && specialistList.parent == content) {
+                        if (profiles.isEmpty()) specialistList.addView(infoCard("NO SPECIALISTS YET", "Create one for rendering, shaders, avatars or another area. Nothing is pre-trained by the profile."))
+                        profiles.forEach { specialistList.addView(specialistCard(it), matchWrap(bottom = 8)) }
+                    }
+                }
+            } catch (exception: Exception) {
+                postUi { if (currentPage == Page.TRAINING && specialistList.parent == content) specialistList.addView(infoCard("SPECIALISTS COULD NOT BE READ", exception.message ?: "Storage is unavailable.")) }
+            }
+        }
+        content?.addView(text("GUIDED PRACTICE", 12, 0xFFBBA9E3.toInt(), bold = true), matchWrap(bottom = 6))
+        TrainingCurriculum.lessons.forEach { (title, prompt) ->
+            val panel = infoCard(title, prompt)
+            val practice = smallButton("Practice this topic")
+            practice.setOnClickListener { useTrainingPrompt(prompt) }
+            panel.addView(practice, matchWrap(top = 7))
+            content?.addView(panel, matchWrap(bottom = 8))
+        }
+        content?.addView(infoCard("YOUR EXAMPLES", "Save an instruction, an ideal reference answer and a source/permission note. Only add material you have permission to use. Review or edit each example yourself; approval is your label, not an authenticated rights check. Editing returns it to draft. Examples stay in this app's private storage and are not automatically sent to the model or other apps."), matchWrap(top = 8))
+        val add = primaryButton("Add an example")
+        add.setOnClickListener { showTrainingExampleEditor(null) }
+        content?.addView(add, matchWrap(top = 8))
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content?.addView(list, matchWrap(top = 10))
+        executor.execute {
+            try {
+                val examples = TrainingExampleStore(this).list()
+                postUi {
+                    if (currentPage != Page.TRAINING || list.parent == null || list.parent != content) return@postUi
+                    if (examples.isEmpty()) list.addView(infoCard("NO EXAMPLES YET", "Add an instruction and reference answer to begin building your own practice set."))
+                    examples.forEach { example -> list.addView(trainingExampleCard(example), matchWrap(bottom = 8)) }
+                }
+            } catch (exception: Exception) {
+                postUi {
+                    if (currentPage == Page.TRAINING && list.parent == content) {
+                        list.addView(infoCard("EXAMPLES COULD NOT BE READ", "${exception.message ?: "Storage is unavailable."} Existing data was not replaced."))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun specialistCard(profile: SpecialistProfile): LinearLayout {
+        val panel = infoCard(profile.name, "Model: ${profile.model.ifBlank { "Use Settings model" }}\nInstructions: ${profile.instructions.ifBlank { "None yet" }}")
+        val test = smallButton("Practice with specialist")
+        test.setOnClickListener { showSpecialistPractice(profile) }
+        panel.addView(test, matchWrap(top = 7))
+        val suite = smallButton("Run fixed 10-prompt contract suite")
+        suite.setOnClickListener { confirmSpecialistSuite(profile, suite) }
+        panel.addView(suite, matchWrap(top = 5))
+        val edit = smallButton("Edit name, model or instructions")
+        edit.setOnClickListener { showSpecialistEditor(profile) }
+        panel.addView(edit, matchWrap(top = 5))
+        val delete = smallButton("Delete specialist")
+        delete.setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Delete ${profile.name}?")
+                .setMessage("This deletes only the profile, not the local model or your saved examples.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Delete") { _, _ ->
+                    executor.execute {
+                        try {
+                            SpecialistStore(this).delete(profile.id)
+                            postUi { toast("Specialist deleted."); if (currentPage == Page.TRAINING) render() }
+                        } catch (exception: Exception) { postUi { toast("Could not delete: ${exception.message}") } }
+                    }
+                }.show()
+        }
+        panel.addView(delete, matchWrap(top = 5))
+        return panel
+    }
+
+    private fun confirmSpecialistSuite(profile: SpecialistProfile, button: Button) {
+        val selected = profile.model.ifBlank { settings.model }
+        if (selected.isBlank()) { toast("Set a local model in the specialist or Settings first."); return }
+        AlertDialog.Builder(this).setTitle("Run ten fixed prompts?")
+            .setMessage("This sends ten separate prompts to the configured local model ($selected), with this specialist's instructions and no saved examples. It can take ten request timeouts; the first transport failure stops the suite. Results are shown only in this session. Closing the screen does not cancel requests.\n\nThis checks structure and selected abstentions only, not answer accuracy, real 3D checks, model identity or weight hashes. A model name is not a version pin.")
+            .setNegativeButton("Cancel", null).setPositiveButton("Run suite") { _, _ ->
+                val settingsForRun = settings
+                button.isEnabled = false
+                button.text = "Running suite…"
+                executor.execute {
+                    val results = SpecialistFixedSuite.run { case -> LocalHarness.runSpecialist(profile, case.prompt, emptyList(), settingsForRun) }
+                    val report = buildString {
+                        append("Suite v${SpecialistFixedSuite.VERSION} · model ID: $selected (weights not verified)\n")
+                        append("Structural/abstention checks: ${results.count { it.passed }}/${results.size}. This is not a correctness or safety score. Outputs are unverified; no 3D checks ran.\n")
+                        results.forEach { item ->
+                            val status = when {
+                                item.error?.startsWith("NOT RUN") == true -> "NOT RUN"
+                                item.passed -> "CHECK PASSED"
+                                else -> "CHECK FAILED"
+                            }
+                            append("\n${item.case.id}: $status · ${if (item.case.abstainRequired) "abstention required" else "answer or abstention accepted"}\n")
+                            val result = item.result
+                            append(item.error ?: if (result == null) "No result" else "${result.outcome}: ${if (result.outcome == SpecialistOutcome.ABSTAIN) result.reason else result.answer}")
+                            append("\n")
+                        }
+                    }
+                    postUi {
+                        button.isEnabled = true
+                        button.text = "Run fixed 10-prompt contract suite"
+                        AlertDialog.Builder(this).setTitle("Contract suite results")
+                            .setMessage(report).setPositiveButton("Close", null).show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showSpecialistEditor(existing: SpecialistProfile?) {
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(8)) }
+        val name = editBox("Name, for example Shader specialist", multiline = false).apply { setText(existing?.name.orEmpty()) }
+        val model = editBox("Optional local model ID; blank uses Settings", multiline = false).apply { setText(existing?.model.orEmpty()) }
+        val instructions = editBox("Your instructions (optional)", multiline = true).apply { setText(existing?.instructions.orEmpty()) }
+        fields.addView(label("SPECIALIST NAME")); fields.addView(name, matchWrap(top = 5, bottom = 10))
+        fields.addView(label("MODEL ID")); fields.addView(model, matchWrap(top = 5, bottom = 10))
+        fields.addView(label("YOUR INSTRUCTIONS")); fields.addView(instructions, matchWrap(top = 5))
+        val scroll = ScrollView(this).apply { addView(fields) }
+        val dialog = AlertDialog.Builder(this).setTitle(if (existing == null) "Create blank specialist" else "Edit specialist")
+            .setMessage("The profile starts without instructions or its own model. A model ID selects an existing local model; it does not create or train one.")
+            .setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val profile = SpecialistProfile(existing?.id ?: java.util.UUID.randomUUID().toString(), name.text.toString().trim(), model.text.toString().trim(), instructions.text.toString().trim())
+                try {
+                    SpecialistProfiles.validate(profile)
+                    val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    button.isEnabled = false
+                    executor.execute {
+                        try {
+                            SpecialistStore(this).save(profile, existing == null)
+                            postUi { dialog.dismiss(); toast("Specialist saved."); if (currentPage == Page.TRAINING) render() }
+                        } catch (exception: Exception) { postUi { button.isEnabled = true; toast("Could not save: ${exception.message}") } }
+                    }
+                } catch (exception: Exception) { toast(exception.message ?: "Check the specialist fields.") }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showSpecialistPractice(profile: SpecialistProfile) {
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(8)) }
+        val task = editBox("Ask this specialist a question", multiline = true)
+        val examples = CheckBox(this).apply {
+            text = "Send ALL reviewed examples (up to 8, 16 KB) to the local model as reference context"
+            setTextColor(0xFFE1DCE8.toInt())
+            buttonTintList = android.content.res.ColorStateList.valueOf(ACCENT)
+        }
+        fields.addView(task, matchWrap()); fields.addView(examples, matchWrap(top = 8))
+        val scroll = ScrollView(this).apply { addView(fields) }
+        val dialog = AlertDialog.Builder(this).setTitle("Practice: ${profile.name}")
+            .setMessage("Uses ${profile.model.ifBlank { settings.model.ifBlank { "the model in Settings" } }} via the configured loopback server. Each test is a single response, not the three-worker pipeline, a weight update, or a verified render. Instructions and checked examples are sent to that server. Closing the dialog does not cancel an already-started request.")
+            .setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Run locally", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val requestTask = task.text.toString().trim()
+                if (requestTask.isBlank() || requestTask.length > 4000) { toast("Enter a task of at most 4000 characters."); return@setOnClickListener }
+                val includeExamples = examples.isChecked
+                val settingsForRun = settings
+                val run = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                run.isEnabled = false
+                run.text = "Running…"
+                executor.execute {
+                    try {
+                        val chosen = if (includeExamples) TrainingExampleStore(this).list().filter { it.approved } else emptyList()
+                        val result = LocalHarness.runSpecialist(profile, requestTask, chosen, settingsForRun)
+                        postUi {
+                            if (!dialog.isShowing) return@postUi
+                            dialog.dismiss()
+                            val message = if (result.outcome == SpecialistOutcome.ABSTAIN) {
+                                "The specialist could not reliably complete this task. Abstaining is a valid outcome.\n\nReason: ${result.reason}"
+                            } else {
+                                "Unverified answer — no external checks ran. Compare against your references.\n\n${result.answer}"
+                            }
+                            AlertDialog.Builder(this).setTitle(if (result.outcome == SpecialistOutcome.ABSTAIN) "Abstained" else "${profile.name}: unverified answer")
+                                .setMessage("$message\n\nModel-reported confidence: ${result.confidence} (uncalibrated). No weights were changed.")
+                                .setPositiveButton("Close", null).show()
+                        }
+                    } catch (exception: Exception) {
+                        postUi {
+                            if (dialog.isShowing) {
+                                run.isEnabled = true; run.text = "Run locally"
+                                AlertDialog.Builder(this).setTitle("No valid specialist result")
+                                    .setMessage("${exception.message ?: "Local model unavailable or response invalid."}\n\nNo success was recorded. Check the model/server and output contract before trying again.")
+                                    .setPositiveButton("Close", null).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun useTrainingPrompt(prompt: String) {
+        val open = {
+            taskDraft = prompt
+            currentPage = Page.TASK
+            render()
+        }
+        if (taskDraft.isNotBlank()) {
+            AlertDialog.Builder(this).setTitle("Replace the current task?")
+                .setMessage("The practice instruction will replace your task draft. Nothing is run automatically.")
+                .setNegativeButton("Keep task", null).setPositiveButton("Use instruction") { _, _ -> open() }.show()
+        } else open()
+    }
+
+    private fun trainingExampleCard(example: TrainingExample): LinearLayout {
+        val panel = infoCard(if (example.approved) "REVIEWED BY YOU" else "DRAFT — NOT REVIEWED", "Instruction: ${example.instruction}\n\nReference answer: ${example.reference}\n\nSource and permission note: ${example.source}")
+        val practice = smallButton("Practice this instruction")
+        practice.setOnClickListener { useTrainingPrompt(example.instruction) }
+        panel.addView(practice, matchWrap(top = 7))
+        val edit = smallButton("Edit example")
+        edit.setOnClickListener { showTrainingExampleEditor(example) }
+        panel.addView(edit, matchWrap(top = 5))
+        val approve = smallButton(if (example.approved) "Return to draft" else "Mark as reviewed")
+        approve.setOnClickListener {
+            if (example.approved) trainingChange { it.approve(example.id, false) }
+            else AlertDialog.Builder(this).setTitle("Mark as reviewed?")
+                .setMessage("Confirm you reviewed the instruction, reference answer and source/permission note. This label does not verify rights or train a model.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Mark reviewed") { _, _ -> trainingChange { it.approve(example.id, true) } }.show()
+        }
+        panel.addView(approve, matchWrap(top = 5))
+        val delete = smallButton("Delete example")
+        delete.setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Delete this example?")
+                .setMessage("This removes the example from this app's private collection. This cannot be undone.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete") { _, _ -> trainingChange { it.delete(example.id) } }.show()
+        }
+        panel.addView(delete, matchWrap(top = 5))
+        return panel
+    }
+
+    private fun showTrainingExampleEditor(existing: TrainingExample?) {
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(8)) }
+        val instruction = editBox("Instruction or question", multiline = true).apply { minLines = 3; setText(existing?.instruction.orEmpty()) }
+        val reference = editBox("Ideal reference answer (your reviewed example)", multiline = true).apply { minLines = 3; setText(existing?.reference.orEmpty()) }
+        val source = editBox("Source and permission to use", multiline = true).apply { minLines = 2; setText(existing?.source.orEmpty()) }
+        fields.addView(label("INSTRUCTION")); fields.addView(instruction, matchWrap(top = 5, bottom = 10))
+        fields.addView(label("REFERENCE ANSWER")); fields.addView(reference, matchWrap(top = 5, bottom = 10))
+        fields.addView(label("SOURCE AND PERMISSION NOTE")); fields.addView(source, matchWrap(top = 5))
+        val scroller = ScrollView(this).apply { addView(fields) }
+        val dialog = AlertDialog.Builder(this).setTitle(if (existing == null) "Add an example" else "Edit example")
+            .setMessage("Use material you have permission to use. Editing returns a reviewed example to draft.")
+            .setView(scroller).setNegativeButton("Cancel", null).setPositiveButton("Save draft", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val example = TrainingExample(existing?.id ?: java.util.UUID.randomUUID().toString(),
+                    instruction.text.toString().trim(), reference.text.toString().trim(), source.text.toString().trim())
+                try {
+                    TrainingExamples.validate(example)
+                    val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    saveButton.isEnabled = false
+                    executor.execute {
+                        try {
+                            val store = TrainingExampleStore(this)
+                            if (existing == null) store.create(example) else store.replace(example)
+                            postUi {
+                                dialog.dismiss()
+                                toast("Example saved on this device.")
+                                if (currentPage == Page.TRAINING) render()
+                            }
+                        } catch (exception: Exception) {
+                            postUi {
+                                saveButton.isEnabled = true
+                                toast("Example not saved: ${exception.message ?: "storage error"}")
+                            }
+                        }
+                    }
+                } catch (exception: Exception) {
+                    toast(exception.message ?: "Check the example fields.")
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun trainingChange(action: (TrainingExampleStore) -> Unit) {
+        executor.execute {
+            try {
+                action(TrainingExampleStore(this))
+                postUi { toast("Example saved on this device."); if (currentPage == Page.TRAINING) render() }
+            } catch (exception: Exception) {
+                postUi { toast("Example not saved: ${exception.message ?: "storage error"}") }
+            }
+        }
+    }
+
     private fun showLibraryPage() {
         addTitle("Frozen local library", "Selected sources are copied, validated and frozen in this app's private storage. The Termux library is never moved or edited.")
+        content?.addView(infoCard("HOW TO ADD SOURCES", "For a first test, choose Create app-private demo library below and confirm. To use your own documents, choose Freeze or import a library folder, select a trusted on-device folder, review the preview, then confirm. Return to Run to ask a question. A library is optional for tasks that do not require sources."), matchWrap(bottom = 10))
         val libraryRoot = File(filesDir, "library")
         val pinForCheck = settings.librarySnapshotId
         val key = "${libraryRoot.absolutePath}|$pinForCheck"
@@ -710,6 +1131,7 @@ class MainActivity : Activity() {
 
     private fun showReviewPage() {
         addTitle("Human review queue", "Observations are machine-attributed records; the app does not run a detector or authenticate the source. Decisions are separately recorded as human choices.")
+        content?.addView(infoCard("OPTIONAL: HOW TO REVIEW", "First set a reviewer label in Settings. Import existing monitor records or record an observation supplied by an external monitor. Inspect each item, then approve, reject, or edit it. Only after review can you prepare eligible context for a later episode. An empty queue is normal if you have not added observations."), matchWrap(bottom = 10))
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val filter = smallButton(if (includeReviewed) "Showing all" else "Pending only", selected = true)
         filter.setOnClickListener { includeReviewed = !includeReviewed; render() }
@@ -1005,6 +1427,7 @@ class MainActivity : Activity() {
 
     private fun showSettingsPage() {
         addTitle("Local settings", "The app stores these settings on this device. Endpoints are restricted to loopback; there is no cloud fallback.")
+        content?.addView(infoCard("SET UP YOUR MODEL", "1. Start Ollama in Termux on this phone and install a model.\n2. Enter its exact model ID below; the default URL normally needs no change.\n3. Tap Save settings, then Test local server connection. Testing also saves the form.\n\nThe library pin is filled when you install a library; the reviewer label is optional unless you record review decisions."), matchWrap(bottom = 10))
         settingsFields = mutableMapOf()
         val panel = card()
         field(panel, "baseUrl", "LOCAL MODEL URL", settings.baseUrl, "http://127.0.0.1:11434/v1")
@@ -1021,6 +1444,8 @@ class MainActivity : Activity() {
         val save = primaryButton("Save settings")
         save.setOnClickListener { saveSettings() }
         content?.addView(save, matchWrap(top = 10))
+        connectionStatusView = text("Last connection test: $connectionStatus", 13, MUTED)
+        content?.addView(connectionStatusView, matchWrap(top = 10))
         val test = smallButton("Test local server connection")
         test.setOnClickListener { testLocalConnection(test) }
         content?.addView(test, matchWrap(top = 8))
@@ -1101,6 +1526,10 @@ class MainActivity : Activity() {
         require(reviewer.length <= 128) { "reviewer label is too long" }
         val baseline = settings
         settings = settingsStore.saveMerged(AppSettings(base, model, timeout, pin, reviewer), baseline)
+        if (settings.baseUrl != baseline.baseUrl || settings.model != baseline.model || settings.timeoutSeconds != baseline.timeoutSeconds) {
+            connectionStatus = "Settings changed; test again."
+            connectionStatusView?.text = "Last connection test: $connectionStatus"
+        }
         settingsLoadWarning = null
         toast("Settings saved on this device.")
         if (rerender) render()
@@ -1115,14 +1544,23 @@ class MainActivity : Activity() {
         val settingsForTest = settings
         button.isEnabled = false
         button.text = "Checking loopback…"
+        connectionStatus = "Test in progress."
+        connectionStatusView?.text = "Last connection test: $connectionStatus"
         executor.execute {
-            try {
+            val outcome = try {
                 val message = LocalHarness.testConnection(settingsForTest)
-                postUi { toast(message) }
+                "$message This checks the endpoint only, not model availability. It may have changed since the test."
             } catch (exception: Exception) {
-                postUi { toast("Local connection failed: ${exception.message}") }
-            } finally {
-                postUi { button.isEnabled = true; button.text = "Test local server connection" }
+                "Failed: ${exception.message ?: "Could not connect."} Check that Ollama is running on this phone and the URL and model name in Settings are correct, then test again."
+            }
+            postUi {
+                if (settings.baseUrl == settingsForTest.baseUrl && settings.model == settingsForTest.model &&
+                    settings.timeoutSeconds == settingsForTest.timeoutSeconds) {
+                    connectionStatus = outcome
+                    connectionStatusView?.text = "Last connection test: $connectionStatus"
+                }
+                button.isEnabled = true
+                button.text = "Test local server connection"
             }
         }
     }
