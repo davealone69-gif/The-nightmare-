@@ -9,6 +9,7 @@ import java.io.InputStream
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.locks.ReentrantLock
 import java.util.UUID
 
@@ -44,6 +45,60 @@ class ReviewStore internal constructor(private val root: File) {
         return observations.filter { requestedEpisode == null || it.optString("episode_id") == requestedEpisode }.mapNotNull { observation ->
             val decision = decisionByObservation[observation.optString("observation_id")]
             if (decision != null && !includeReviewed) null else QueueItem(observation, decision)
+        }
+    }
+
+    fun recordObservation(
+        streamId: String,
+        episodeId: String,
+        signalCode: String,
+        severity: String,
+        confidence: Double,
+        summary: String,
+        evidenceRefs: List<String> = emptyList(),
+        componentVersion: String,
+        coverage: Double? = null,
+    ): JSONObject {
+        require(streamId in STREAMS) { "stream must be mandela or matrix" }
+        requireSafeId(episodeId, "episode ID")
+        requireSafeId(signalCode, "signal code")
+        require(severity in SEVERITIES) { "severity must be P0, P1, P2, or P3" }
+        require(confidence.isFinite() && confidence in 0.0..1.0) { "confidence must be a finite number from 0 to 1" }
+        if (coverage != null) {
+            require(coverage.isFinite() && coverage in 0.0..1.0) { "coverage must be a finite number from 0 to 1" }
+        }
+        requireSafeText(summary, "summary", 1000)
+        requireSafeText(componentVersion, "component version", 128)
+        require(evidenceRefs.size <= 32 && evidenceRefs.all { it.isNotBlank() && it.length <= 512 }) {
+            "evidence refs must contain at most 32 non-empty references of at most 512 characters"
+        }
+
+        val event = JSONObject()
+            .put("event_schema_version", SCHEMA_VERSION)
+            .put("event_id", uuid())
+            .put("event_type", "MONITOR_OBSERVATION")
+            .put("observation_id", uuid())
+            .put("stream_id", streamId)
+            .put("episode_id", episodeId)
+            .put("occurred_at", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .put("source_provenance", JSONObject()
+                .put("authorship", "machine")
+                .put("component", STREAMS[streamId])
+                .put("component_version", componentVersion.trim()))
+            .put("signal", JSONObject()
+                .put("code", signalCode.uppercase())
+                .put("severity", severity)
+                .put("confidence", confidence)
+                .put("summary", summary.trim())
+                .put("coverage", coverage ?: JSONObject.NULL))
+            .put("evidence_refs", JSONArray(evidenceRefs))
+
+        val target = streamFile(streamId)
+        return withExclusiveAppendLock(target) { channel ->
+            val existingIds = readStream(streamId).map { it.optString("observation_id") }.toSet()
+            require(event.optString("observation_id") !in existingIds) { "duplicate observation ID" }
+            appendToChannel(channel, (JsonCanonical.encode(event) + "\n").toByteArray(StandardCharsets.UTF_8), target.name)
+            event
         }
     }
 

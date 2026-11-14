@@ -24,6 +24,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -309,7 +314,40 @@ class MainActivity : Activity() {
         val import = primaryButton(if (snapshot.available) "Replace imported Android library" else "Import frozen library folder")
         import.setOnClickListener { launchLibraryPicker() }
         content?.addView(import, matchWrap(top = 12))
+        if (!snapshot.available && !File(filesDir, "library").exists()) {
+            val demo = smallButton("Create app-private demo library")
+            demo.setOnClickListener { confirmDemoLibraryCreation() }
+            content?.addView(demo, matchWrap(top = 8))
+        }
         content?.addView(infoCard("LIBRARY REQUIREMENTS", "Set the expected snapshot ID in Settings first. It must match the pin in the existing Termux config.json. The selected folder must contain manifest.json and only its declared .md/.txt source files."), matchWrap(top = 12))
+    }
+
+    private fun confirmDemoLibraryCreation() {
+        AlertDialog.Builder(this)
+            .setTitle("Create a local demo library?")
+            .setMessage("This creates the same small sample text used by the Termux demo setup, but only inside this app's private storage. It refuses to overwrite any existing Android library and does not touch Termux files. The sample text is for retrieval testing, not horticultural advice.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create demo") { _, _ ->
+                executor.execute {
+                    try {
+                        val result = DemoLibrarySeeder.createDemoLibrary(File(filesDir, "library"))
+                        require(result.available && result.snapshotId.isNotBlank()) { "demo snapshot did not verify" }
+                        val updated = settings.copy(librarySnapshotId = result.snapshotId)
+                        settingsStore.save(updated)
+                        mainHandler.post {
+                            settings = updated
+                            toast("App-private demo library created and pinned: ${result.snapshotId}")
+                            if (currentPage == Page.LIBRARY) render()
+                        }
+                    } catch (exception: Exception) {
+                        mainHandler.post {
+                            toast("Demo setup stopped: ${exception.message ?: "the library could not be created"}")
+                            if (currentPage == Page.LIBRARY) render()
+                        }
+                    }
+                }
+            }
+            .show()
     }
 
     private fun launchLibraryPicker() {
@@ -336,7 +374,7 @@ class MainActivity : Activity() {
     }
 
     private fun showReviewPage() {
-        addTitle("Human review queue", "Monitor findings are machine-authored; decisions are separately recorded as human choices. This app does not run a detector.")
+        addTitle("Human review queue", "Observations are machine-attributed records; the app does not run a detector or authenticate the source. Decisions are separately recorded as human choices.")
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val filter = smallButton(if (includeReviewed) "Showing all" else "Pending only", selected = true)
         filter.setOnClickListener { includeReviewed = !includeReviewed; render() }
@@ -345,6 +383,9 @@ class MainActivity : Activity() {
         import.setOnClickListener { chooseMonitorStream() }
         controls.addView(import, LinearLayout.LayoutParams(0, dp(42), 1f))
         content?.addView(controls, matchWrap())
+        val record = smallButton("Record supplied monitor output")
+        record.setOnClickListener { chooseMonitorStreamForRecord() }
+        content?.addView(record, matchWrap(top = 8))
         val episodeFilter = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         reviewEpisodeFilterInput = editBox("Episode ID filter (blank = all)", multiline = false).apply { setText(reviewEpisodeFilter) }
         episodeFilter.addView(reviewEpisodeFilterInput, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(7) })
@@ -358,7 +399,7 @@ class MainActivity : Activity() {
         val prepare = primaryButton("Prepare next-episode guidance")
         prepare.setOnClickListener { showPrepareNextEpisodeDialog() }
         content?.addView(prepare, matchWrap(top = 8))
-        content?.addView(infoCard("LOCAL PROVENANCE", "Queue records distinguish Mandela semantic-monitor and Matrix mechanism-monitor authorship. The reviewer ID is an operator-supplied label, not account authentication."), matchWrap(top = 10))
+        content?.addView(infoCard("LOCAL PROVENANCE", "This form only records an operator-supplied claim from an external monitor; it does not detect or verify signals. Machine attribution is not authenticated. The reviewer ID is also an operator-supplied label, not account authentication."), matchWrap(top = 10))
         reviewItemsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content?.addView(reviewItemsContainer, matchWrap(top = 10))
         reloadReviewQueue()
@@ -394,7 +435,7 @@ class MainActivity : Activity() {
         val signal = item.observation.optJSONObject("signal")
         panel.addView(text("${signal?.optString("code")} · ${signal?.optString("severity")} · confidence ${signal?.optString("confidence")}", 12, MUTED).apply { setPadding(0, dp(5), 0, dp(3)) })
         val provenance = item.observation.optJSONObject("source_provenance")
-        panel.addView(text("Machine-authored · ${provenance?.optString("component_version")}", 12, MUTED))
+        panel.addView(text("Machine-attributed · ${provenance?.optString("component_version")}", 12, MUTED))
         val details = smallButton("Inspect full provenance")
         details.setOnClickListener { showReviewDetails(item) }
         panel.addView(details, matchWrap(top = 7))
@@ -480,6 +521,8 @@ class MainActivity : Activity() {
             else -> null
         }
         note?.let { fields.addView(it, matchWrap()) }
+        val editRationale = if (action == "edit") editBox("Optional human rationale", true) else null
+        editRationale?.let { fields.addView(it, matchWrap(top = 8)) }
         val title = when (action) { "approve" -> "Approve machine finding"; "reject" -> "Reject machine finding"; else -> "Edit as a human" }
         val dialog = AlertDialog.Builder(this).setTitle(title)
             .setMessage("${item.component} · ${item.observationId}\n\n${item.summary}")
@@ -494,10 +537,11 @@ class MainActivity : Activity() {
                         settingsStore.save(settings)
                     }
                     val text = note?.text?.toString()?.trim().orEmpty()
+                    val rationale = editRationale?.text?.toString()?.trim().orEmpty()
                     executor.execute {
                         try {
                             ReviewStore(this).decide(item.observationId, action, reviewerId,
-                                reason = if (action == "reject") text else "",
+                                reason = if (action == "reject") text else rationale,
                                 editText = if (action == "edit") text else "")
                             mainHandler.post { toast("Human decision appended."); dialog.dismiss(); if (currentPage == Page.REVIEW) render() }
                         } catch (exception: Exception) {
@@ -525,6 +569,75 @@ class MainActivity : Activity() {
                 }
                 startActivityForResult(intent, REQUEST_REVIEW_IMPORT)
             }.show()
+    }
+
+    private fun chooseMonitorStreamForRecord() {
+        AlertDialog.Builder(this).setTitle("Choose the external monitor")
+            .setMessage("The app does not run a detector. This records a signal supplied by a separate monitor; its machine attribution is a claim and is not authenticated.")
+            .setItems(arrayOf("Mandela semantic monitor", "Matrix mechanism monitor")) { _, which ->
+                showMonitorObservationDialog(if (which == 0) "mandela" else "matrix")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showMonitorObservationDialog(streamId: String) {
+        val component = if (streamId == "mandela") "Mandela semantic monitor" else "Matrix mechanism monitor"
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(4)) }
+        val episode = editBox("Episode ID", false)
+        val code = editBox("Signal code", false)
+        val severity = editBox("Severity: P0, P1, P2, or P3", false).apply { setText("P2") }
+        val confidence = editBox("Confidence from 0 to 1", false, numeric = true, decimal = true)
+        val coverage = editBox("Optional coverage from 0 to 1", false, numeric = true, decimal = true)
+        val summary = editBox("External monitor summary", true)
+        val version = editBox("Monitor component version", false)
+        val evidence = editBox("Evidence references, one per line (optional)", true)
+        listOf(episode, code, severity, confidence, coverage, summary, version, evidence).forEachIndexed { index, input ->
+            fields.addView(input, matchWrap(top = if (index == 0) 0 else 6))
+        }
+        val scroll = ScrollView(this).apply { addView(fields) }
+        val dialog = AlertDialog.Builder(this).setTitle("Record supplied $component output")
+            .setMessage("This form does not detect a signal or verify its source. It records an operator-supplied, machine-attributed observation for separate human review.")
+            .setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Append observation", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val confidenceValue = confidence.text.toString().trim().toDoubleOrNull()
+                val coverageValue = coverage.text.toString().trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()
+                if (confidenceValue == null || (coverage.text.isNotBlank() && coverageValue == null)) {
+                    toast("Confidence and coverage must be numbers from 0 to 1.")
+                    return@setOnClickListener
+                }
+                val evidenceRefs = evidence.text.toString().lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+                val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                button.isEnabled = false
+                executor.execute {
+                    try {
+                        ReviewStore(this).recordObservation(
+                            streamId = streamId,
+                            episodeId = episode.text.toString().trim(),
+                            signalCode = code.text.toString().trim(),
+                            severity = severity.text.toString().trim(),
+                            confidence = confidenceValue,
+                            componentVersion = version.text.toString().trim(),
+                            summary = summary.text.toString().trim(),
+                            evidenceRefs = evidenceRefs,
+                            coverage = coverageValue,
+                        )
+                        mainHandler.post {
+                            dialog.dismiss()
+                            toast("Machine-attributed observation appended; source was not authenticated.")
+                            if (currentPage == Page.REVIEW) render()
+                        }
+                    } catch (exception: Exception) {
+                        mainHandler.post {
+                            button.isEnabled = true
+                            toast("Observation not recorded: ${exception.message ?: "invalid monitor output"}")
+                        }
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun importMonitor(uri: Uri, stream: String) {
@@ -558,6 +671,7 @@ class MainActivity : Activity() {
                 } else importLibrary(uri, false)
             }
             REQUEST_REVIEW_IMPORT -> pendingMonitorStream?.let { importMonitor(uri, it) }
+            REQUEST_CONFIG_IMPORT -> importTermuxConfig(uri)
         }
     }
 
@@ -572,6 +686,10 @@ class MainActivity : Activity() {
         field(panel, "reviewer", "HUMAN REVIEWER ID LABEL", settings.reviewerId, "Name or ID; not authentication")
         content?.addView(panel, matchWrap())
         settingsLoadWarning?.let { content?.addView(infoCard("SAVED SETTINGS REPAIRED", it), matchWrap(top = 10)) }
+        val importConfig = smallButton("Import Termux config.json")
+        importConfig.setOnClickListener { launchTermuxConfigPicker() }
+        content?.addView(importConfig, matchWrap(top = 10))
+        content?.addView(infoCard("SAFE SETTINGS IMPORT", "This fills the form from a user-selected JSON file. It never reads or changes the Termux data directory or library files, and values are not saved until you tap Save settings. The Android reviewer label is preserved."), matchWrap(top = 8))
         val save = primaryButton("Save settings")
         save.setOnClickListener { saveSettings() }
         content?.addView(save, matchWrap(top = 10))
@@ -579,6 +697,59 @@ class MainActivity : Activity() {
         test.setOnClickListener { testLocalConnection(test) }
         content?.addView(test, matchWrap(top = 8))
         content?.addView(infoCard("NETWORK BOUNDARY", "Only HTTP on localhost or a loopback IP is accepted. Requests bypass proxies, refuse redirects, and are capped at 1 MiB. The app does not request broad storage access."), matchWrap(top = 12))
+    }
+
+    private fun launchTermuxConfigPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "application/octet-stream"))
+        }
+        startActivityForResult(intent, REQUEST_CONFIG_IMPORT)
+    }
+
+    private fun importTermuxConfig(uri: Uri) {
+        executor.execute {
+            try {
+                val input = contentResolver.openInputStream(uri) ?: error("could not open selected config file")
+                val configText = input.use { readUtf8Bounded(it, MAX_CONFIG_BYTES) }
+                val imported = SettingsStore.parseTermuxConfig(configText)
+                mainHandler.post {
+                    val dataNote = if (imported.dataDirectoryIgnored) {
+                        "The config contains data_dir, but the app will ignore it and will not open that path."
+                    } else {
+                        "Android will continue using app-private storage; it will not access Termux files."
+                    }
+                    val message = "Copy these values into the Android settings form?\n\nURL: ${imported.baseUrl}\nModel: ${imported.model.ifBlank { "(not set)" }}\nTimeout: ${imported.timeoutSeconds} seconds\nLibrary pin: ${imported.librarySnapshotId.ifBlank { "(not set)" }}\n\n$dataNote\n\nReview the values and tap Save settings to apply them."
+                    AlertDialog.Builder(this).setTitle("Import Termux settings")
+                        .setMessage(message).setNegativeButton("Cancel", null)
+                        .setPositiveButton("Fill settings form") { _, _ ->
+                            settingsFields["baseUrl"]?.setText(imported.baseUrl)
+                            settingsFields["model"]?.setText(imported.model)
+                            settingsFields["timeout"]?.setText(imported.timeoutSeconds.toString())
+                            settingsFields["pin"]?.setText(imported.librarySnapshotId)
+                            toast("Settings form filled. Review and tap Save settings; Termux data was not changed.")
+                        }.show()
+                }
+            } catch (exception: Exception) {
+                mainHandler.post { toast("Config import stopped: ${exception.message ?: "invalid config file"}") }
+            }
+        }
+    }
+
+    private fun readUtf8Bounded(input: InputStream, maxBytes: Int): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val amount = input.read(buffer)
+            if (amount < 0) break
+            require(output.size() + amount <= maxBytes) { "selected config exceeds the $maxBytes byte import limit" }
+            output.write(buffer, 0, amount)
+        }
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        return decoder.decode(ByteBuffer.wrap(output.toByteArray())).toString()
     }
 
     private fun field(parent: LinearLayout, key: String, title: String, value: String, hint: String, numeric: Boolean = false, decimal: Boolean = false) {
@@ -709,6 +880,8 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_LIBRARY = 4101
         private const val REQUEST_REVIEW_IMPORT = 4102
+        private const val REQUEST_CONFIG_IMPORT = 4103
+        private const val MAX_CONFIG_BYTES = 1024 * 1024
         private const val ACCENT = 0xFFC6B2FF.toInt()
         private const val MUTED = 0xFFAAA3B3.toInt()
     }

@@ -110,4 +110,37 @@ class LocalHarnessIntegrationTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun invalidExistingLibraryAbstainsForOrdinaryTaskWithoutOllamaAndPassesReplayResetAudit() {
+        val requests = Collections.synchronizedList(mutableListOf<String>())
+        val server = startServer { exchange ->
+            requests.add(exchange.requestBody.use { String(it.readBytes(), StandardCharsets.UTF_8) })
+            respond(exchange, 200, "{}")
+        }
+        val root = Files.createTempDirectory("nightmare-invalid-library").toFile()
+        try {
+            val result = LocalHarness.run(
+                "Summarize a fictional scene",
+                settings(server),
+                FrozenLibrary(root, "snapshot-0000000000000000"),
+                replayAudit = true,
+                seed = 8675309L,
+            )
+
+            assertEquals(EpisodeStatus.ABSTAINED, result.status)
+            assertEquals(1, result.workers.size)
+            assertEquals("Retriever", result.workers.single().role)
+            assertEquals(WorkerStatus.ABSTAINED, result.workers.single().status)
+            assertEquals("LIBRARY_INTEGRITY_FAILURE", result.workers.single().reason)
+            assertTrue(requests.isEmpty())
+            assertTrue(result.resetAuditPassed == true)
+            val audit = LocalHarness.lastResetAuditReport
+            assertNotNull(audit)
+            assertTrue(audit!!.passed)
+        } finally {
+            server.stop(0)
+            root.deleteRecursively()
+        }
+    }
 }

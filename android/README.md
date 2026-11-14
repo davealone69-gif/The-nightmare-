@@ -2,7 +2,7 @@
 
 This is a **private, local-only Android client for personal training**. It is not being prepared for public release. The new native Kotlin app is additive: the Python standard-library Termux CLI remains intact, and this work does not modify or relocate its user data. The app uses platform Android views and libraries only. Model requests go directly to an OpenAI-compatible Ollama server on loopback; there is no cloud fallback. A deny-by-default Android network-security configuration permits cleartext HTTP only to exact loopback names/addresses. The app validates those exact hosts without DNS lookups and disables HTTP redirects and proxies. Android backup is disabled, and settings, imported library copies, and review journals remain in the app's private storage.
 
-The app can run tasks through Retriever → Analyst → Formatter, classify citation IDs, abstain on live-data or unsupported source requests, verify an imported frozen library, and review existing monitor observations with separately recorded human decisions. Confidence remains uncalibrated. Review decisions and prepared context are not a certification or production audit system. Replay compares the app's declared task/worker state only; it cannot inspect Ollama internals or Android OS state. The app does not run the image-evaluation detector or the broader system in the long-term specification.
+The app can run tasks through Retriever → Analyst → Formatter, classify citation IDs, abstain on live-data or unsupported source requests, verify an imported frozen library, and review monitor observations with separately recorded human decisions. It can also record a structured observation supplied by an external monitor, but the app does not run a detector or authenticate that claim. Confidence remains uncalibrated. Review decisions and prepared context are not a certification or production audit system. Replay compares the app's declared task/worker state only; it cannot inspect Ollama internals or Android OS state. The app does not run the image-evaluation detector or the broader system in the long-term specification.
 
 ## Build a private debug APK
 
@@ -19,6 +19,14 @@ The standalone Android build compiles and targets API 37 (Android 17), with mini
 ## Connect to local Ollama
 
 Start Ollama in Termux on the same phone and set the app's model identifier to an installed model. The default base URL is `http://127.0.0.1:11434/v1`. Keep it unless the local service uses another allowed loopback host, port, or path. The Android app refuses remote hostnames, remote IP addresses, and other loopback aliases outside its explicit allowlist.
+
+## Import Termux settings
+
+On the Settings screen, choose **Import Termux config.json** and select the file through Android's document picker. After reviewing the preview, confirm to fill the form; the values are not stored until you tap **Save settings**. The app imports the loopback URL, model name, timeout, and optional library snapshot pin. It ignores `data_dir` completely and never opens or modifies Termux data, library, or configuration files; your Android reviewer label is preserved.
+
+## Create an app-private demo library
+
+When no Android library copy exists, the Library screen offers **Create app-private demo library**. It creates the same single sample text used by the Termux demo seeder, computes and verifies a frozen manifest, stores the resulting pin in Android settings, and refuses to replace an existing app-private library. The sample is only for local retrieval testing, not horticultural advice. General-purpose freezing of an arbitrary source folder, Termux `--pin-existing`/`--repin`, and the portable project exporter remain Termux-side setup tools.
 
 ## Copy existing Termux data without moving it
 
@@ -63,9 +71,9 @@ print("Original Termux files were not changed.")
 PY
 ```
 
-In Android Settings, enter the existing `library_snapshot_id` as the pin. If the Termux config has no pin (for example, an older setup), inspect `library/manifest.json` and use its `snapshot_id` only after you trust and verify that frozen library; this sets an Android-app pin only and does not alter the Termux config. On the Library screen, select the copied `library` folder. The importer verifies the manifest, source hashes, computed snapshot ID, size limits, and configured pin before installing a separate app-private copy. It does not change the Termux library.
+Import `config.json` on the Android Settings screen, or enter the existing `library_snapshot_id` manually. If the Termux config has no pin (for example, an older setup), inspect `library/manifest.json` and enter its `snapshot_id` only after you trust and verify that frozen library; this sets an Android-app pin only and does not alter the Termux config. On the Library screen, select the copied `library` folder. The importer verifies the manifest, source hashes, computed snapshot ID, size limits, and configured pin before installing a separate app-private copy. It does not change the Termux library.
 
-To migrate review history, import the copied `mandela.jsonl` and `matrix.jsonl` files from the Review screen first, then import `human-decisions.jsonl`. Human decisions are accepted only when they bind to already-imported monitor observations and their digests match. Reimporting duplicate IDs is refused. Existing `next-episodes.jsonl` events are not imported; reviewed context is recomputed from the imported observations and decisions. The original Termux journals remain unchanged.
+The Review screen can append a structured record supplied by an external Mandela or Matrix monitor. This is operator-entered event recording only: it does not detect a signal, verify its source, or prove that a machine authored it. The saved record is marked machine-attributed and remains subject to explicit human review. To migrate review history instead, import the copied `mandela.jsonl` and `matrix.jsonl` files from the Review screen first, then import `human-decisions.jsonl`. Human decisions are accepted only when they bind to already-imported monitor observations and their digests match. Reimporting duplicate IDs is refused. Existing `next-episodes.jsonl` events are not imported; reviewed context is recomputed from the imported observations and decisions. The original Termux journals remain unchanged.
 
 ## Verification status
 

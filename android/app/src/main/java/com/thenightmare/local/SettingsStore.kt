@@ -1,6 +1,8 @@
 package com.thenightmare.local
 
 import android.content.Context
+import org.json.JSONException
+import org.json.JSONObject
 
 class SettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("local_settings", Context.MODE_PRIVATE)
@@ -98,6 +100,75 @@ class SettingsStore(context: Context) {
         const val DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
         const val MAX_MODEL_LENGTH = 256
         const val MAX_REVIEWER_LENGTH = 128
+        private const val DEFAULT_DATA_DIRECTORY = "../the-nightmare-data"
         private val SNAPSHOT_PIN = Regex("snapshot-[0-9a-f]{16}")
+
+        fun parseTermuxConfig(jsonText: String): ImportedTermuxConfig {
+            val config = try {
+                JSONObject(jsonText)
+            } catch (exception: JSONException) {
+                throw IllegalArgumentException("Termux config must be a JSON object", exception)
+            }
+            val allowedKeys = setOf("base_url", "model", "timeout_seconds", "data_dir", "library_snapshot_id")
+            val unknown = config.keys().asSequence().filterNot(allowedKeys::contains).toList().sorted()
+            require(unknown.isEmpty()) { "unknown config setting(s): ${unknown.joinToString(", ")}" }
+
+            val baseUrl = config.valueOrDefault("base_url", DEFAULT_BASE_URL).requireString("base_url")
+            val validatedBaseUrl = try {
+                LocalHarness.validateBaseUrl(baseUrl)
+            } catch (exception: Exception) {
+                throw IllegalArgumentException("invalid base_url", exception)
+            }
+
+            val model = config.valueOrDefault("model", "").requireString("model").trim()
+            require(model.length <= MAX_MODEL_LENGTH) {
+                "model identifier must be at most $MAX_MODEL_LENGTH characters"
+            }
+
+            val timeoutValue = config.valueOrDefault("timeout_seconds", 90)
+            require(timeoutValue is Number) {
+                "timeout_seconds must be a positive number"
+            }
+            val timeout = timeoutValue.toDouble()
+            LocalHarness.validateTimeout(timeout)
+
+            val dataDirectory = config.valueOrDefault("data_dir", DEFAULT_DATA_DIRECTORY)
+            require(dataDirectory is String && dataDirectory.trim().isNotEmpty() &&
+                !java.io.File(dataDirectory).isAbsolute) {
+                "data_dir must be a non-empty relative path"
+            }
+
+            val snapshotValue = if (config.has("library_snapshot_id")) config.opt("library_snapshot_id") else ""
+            val snapshot = when (snapshotValue) {
+                JSONObject.NULL, null -> ""
+                is String -> snapshotValue
+                else -> throw IllegalArgumentException("library_snapshot_id must be a string")
+            }
+            require(snapshot.isEmpty() || snapshot.matches(SNAPSHOT_PIN)) {
+                "library_snapshot_id must be a valid pinned snapshot id"
+            }
+
+            return ImportedTermuxConfig(
+                baseUrl = validatedBaseUrl,
+                model = model,
+                timeoutSeconds = timeout,
+                librarySnapshotId = snapshot,
+                dataDirectoryIgnored = config.has("data_dir"),
+            )
+        }
+
+        private fun JSONObject.valueOrDefault(key: String, default: Any): Any =
+            if (has(key)) opt(key) else default
+
+        private fun Any?.requireString(key: String): String =
+            this as? String ?: throw IllegalArgumentException("$key must be a string")
     }
 }
+
+data class ImportedTermuxConfig(
+    val baseUrl: String,
+    val model: String,
+    val timeoutSeconds: Double,
+    val librarySnapshotId: String,
+    val dataDirectoryIgnored: Boolean,
+)

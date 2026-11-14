@@ -229,8 +229,7 @@ object LocalHarness {
             if (reason == LibraryFailureReason.LIBRARY_UNAVAILABLE && !requiresSources) {
                 return runWorker("Retriever", retrieverPrompt, task, emptyList(), settings)
             }
-            if (requiresSources) return abstain("Retriever", reason.name)
-            throw FrozenLibraryException(reason, info.message)
+            return abstain("Retriever", reason.name)
         }
         val snapshot = try {
             library.search(task)
@@ -238,8 +237,7 @@ object LocalHarness {
             if (exception.reason == LibraryFailureReason.LIBRARY_UNAVAILABLE && !requiresSources) {
                 return runWorker("Retriever", retrieverPrompt, task, emptyList(), settings)
             }
-            if (requiresSources) return abstain("Retriever", exception.reason.name)
-            throw exception
+            return abstain("Retriever", exception.reason.name)
         }
             if (snapshot.passages.isNotEmpty()) {
                 val evidence = buildString {
