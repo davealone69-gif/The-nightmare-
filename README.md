@@ -89,3 +89,8 @@ The local worker-phase numbering follows the original repository build brief. It
 Monitoring and human review are disclosed to the accountable operator. The design does not use hidden queues or disguise machine influence as randomness or independent human judgment.
 
 The broader design proposal remains limited to still-image quality review and excludes identity matching, biometric recognition, demographic or protected-trait inference, personal-photo evaluation, online learning, autonomous correction, and machine-issued certification. Do not describe this local harness as production-ready; applicable gates and human approvals in the full specification remain outstanding.
+
+
+## Native Android app
+
+A separate native Kotlin Android client is being developed in [`android/`](android/README.md). It preserves the Python standard-library Termux CLI and uses only a loopback local Ollama service. Android app-private state is separate from Termux files; the app does not modify the existing CLI data. See the Android guide for build and library-import notes.

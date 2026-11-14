@@ -31,6 +31,8 @@ FIXED_EPOCH = 315532800
 REQUIRED_FILES = ("README.md", "requirements.txt", "config.json", "run.sh")
 EXCLUDED_DIR_NAMES = {
     ".git",
+    ".gradle",
+    ".kotlin",
     "__pycache__",
     ".cache",
     ".pytest_cache",
