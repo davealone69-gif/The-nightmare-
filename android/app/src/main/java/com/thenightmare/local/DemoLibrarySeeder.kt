@@ -31,6 +31,7 @@ This sample text exists only to exercise local retrieval and is not horticultura
 
         val staging = File(parent, ".${libraryRoot.name}.demo-staging-${UUID.randomUUID()}")
         check(staging.mkdir()) { "cannot create demo library staging directory" }
+        var installed = false
         try {
             val source = File(staging, SOURCE_PATH)
             source.writeText(DEMO_TEXT, Charsets.UTF_8)
@@ -54,22 +55,29 @@ This sample text exists only to exercise local retrieval and is not horticultura
                 Charsets.UTF_8,
             )
 
+            makeReadOnlyTree(staging)
             val verified = FrozenLibrary(staging, snapshotId).info()
             check(verified.available && verified.snapshotId == snapshotId) {
                 "generated demo library failed frozen-library validation: ${verified.message}"
             }
-            // FrozenLibrary.info() locks the staged tree; some providers implement a
-            // directory move as copy-and-delete, so restore staging permissions first.
+            // Some NIO providers copy/delete rather than rename a directory; make only this
+            // private, already-validated staging copy writable for that move, then freeze it again.
             makeWritableTree(staging)
             check(moveWithoutReplacing(staging, libraryRoot)) {
                 "could not install demo library"
             }
+            installed = true
+            makeReadOnlyTree(libraryRoot)
             return FrozenLibrary(libraryRoot, snapshotId).info().also { installed ->
                 check(installed.available && installed.snapshotId == snapshotId) {
                     "installed demo library failed frozen-library validation: ${installed.message}"
                 }
             }
         } catch (failure: Exception) {
+            if (installed) {
+                makeWritableTree(libraryRoot)
+                libraryRoot.deleteRecursively()
+            }
             makeWritableTree(staging)
             staging.deleteRecursively()
             throw failure
@@ -94,6 +102,14 @@ This sample text exists only to exercise local retrieval and is not horticultura
     }
 
     private fun isSymbolicLink(file: File): Boolean = Files.isSymbolicLink(file.toPath())
+
+    private fun makeReadOnlyTree(file: File) {
+        if (file.isDirectory) file.listFiles()?.forEach(::makeReadOnlyTree)
+            ?: error("cannot list demo library staging directory")
+        check(file.setWritable(false, false) && !file.canWrite()) {
+            "demo library staging entries could not be made read-only"
+        }
+    }
 
     private fun makeWritableTree(file: File) {
         if (!existsWithoutFollowingLinks(file) || isSymbolicLink(file)) return

@@ -124,7 +124,7 @@ data class QueueItem(
     val component: String get() = observation.optJSONObject("source_provenance")?.optString("component").orEmpty()
 }
 
-enum class LibraryFailureReason { LIBRARY_UNAVAILABLE, LIBRARY_INTEGRITY_FAILURE }
+enum class LibraryFailureReason { LIBRARY_UNAVAILABLE, LIBRARY_UNPINNED, LIBRARY_INTEGRITY_FAILURE }
 
 data class ResetAuditReport(
     val stage: String,

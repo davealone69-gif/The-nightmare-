@@ -2,6 +2,7 @@ package com.thenightmare.local
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -29,6 +30,8 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -36,6 +39,9 @@ class MainActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    private val preparationLock = Any()
+    private var pendingPreparation: FrozenLibrary.Preparation? = null
+    private var activityDestroyed = false
     private lateinit var settingsStore: SettingsStore
     private var settings = AppSettings()
     private var currentPage = Page.TASK
@@ -64,6 +70,9 @@ class MainActivity : Activity() {
     private var runningMessage = "Preparing the local episode…"
     private var runningProgressText: TextView? = null
     private var settingsLoadWarning: String? = null
+    private var libraryInfoCacheKey: String? = null
+    private var libraryInfoCache: LibraryInfo? = null
+    private var libraryInfoCheckKey: String? = null
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,6 +80,7 @@ class MainActivity : Activity() {
         settingsStore = SettingsStore(this)
         settings = settingsStore.load()
         settingsLoadWarning = settingsStore.loadWarning
+        scheduleAbandonedStagingCleanup()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Build.VERSION.SDK_INT < 35) window.setDecorFitsSystemWindows(false)
             window.insetsController?.setSystemBarsAppearance(
@@ -83,8 +93,70 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        executor.shutdownNow()
+        val orphaned = synchronized(preparationLock) {
+            activityDestroyed = true
+            pendingPreparation.also { pendingPreparation = null }
+        }
+        orphaned?.let { preparation ->
+            executor.execute { runCatching { FrozenLibrary.discardPreparation(this, preparation) } }
+        }
+        // Let in-flight library transactions and queued cleanup finish; do not interrupt a rename.
+        executor.shutdown()
         super.onDestroy()
+    }
+
+    private fun postUi(action: () -> Unit) {
+        mainHandler.post {
+            if (!isFinishing && !isDestroyed) action()
+        }
+    }
+
+    private fun retainPreparation(preparation: FrozenLibrary.Preparation): Boolean = synchronized(preparationLock) {
+        if (activityDestroyed || pendingPreparation != null) false else {
+            pendingPreparation = preparation
+            true
+        }
+    }
+
+    private fun isPreparationPending(preparation: FrozenLibrary.Preparation): Boolean =
+        synchronized(preparationLock) { pendingPreparation == preparation }
+
+    private fun takePendingPreparation(preparation: FrozenLibrary.Preparation): Boolean = synchronized(preparationLock) {
+        if (pendingPreparation != preparation) false else {
+            pendingPreparation = null
+            true
+        }
+    }
+
+    private fun discardPendingPreparation(preparation: FrozenLibrary.Preparation) {
+        if (takePendingPreparation(preparation)) {
+            runCatching { FrozenLibrary.discardPreparation(this, preparation) }
+        }
+    }
+
+    private fun postPreparationUi(preparation: FrozenLibrary.Preparation, action: () -> Unit) {
+        val accepted = mainHandler.post {
+            if (isFinishing || isDestroyed || !isPreparationPending(preparation)) {
+                discardPendingPreparation(preparation)
+            } else action()
+        }
+        if (!accepted) discardPendingPreparation(preparation)
+    }
+
+    private fun scheduleAbandonedStagingCleanup() {
+        val schedule = synchronized(ABANDONED_STAGING_LOCK) {
+            if (abandonedStagingCleanupScheduled) false else {
+                abandonedStagingCleanupScheduled = true
+                true
+            }
+        }
+        if (schedule) executor.execute {
+            try {
+                FrozenLibrary.cleanupAbandonedPreparations(this)
+            } catch (exception: Exception) {
+                postUi { toast("Temporary library staging cleanup could not finish: ${exception.message ?: "storage is unavailable"}") }
+            }
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -234,19 +306,19 @@ class MainActivity : Activity() {
                 }
                 val library = FrozenLibrary(File(filesDir, "library"), modelSettings.librarySnapshotId)
                 val result = LocalHarness.run(effectiveTask, modelSettings, library, replayAudit = replayDraft, seed = seed) { message ->
-                    mainHandler.post {
+                    postUi {
                         runningMessage = message
                         runningProgressText?.text = message
                     }
                 }
-                mainHandler.post {
+                postUi {
                     lastEpisodeResult = result
                     lastRunError = null
                     isRunInProgress = false
                     if (currentPage == Page.TASK) render()
                 }
             } catch (exception: Exception) {
-                mainHandler.post {
+                postUi {
                     lastEpisodeResult = null
                     lastRunError = exception.message ?: "The local episode could not complete."
                     isRunInProgress = false
@@ -304,22 +376,61 @@ class MainActivity : Activity() {
     }
 
     private fun showLibraryPage() {
-        addTitle("Frozen local library", "Imported sources are copied into this app's private storage. The Termux library is never moved or edited.")
-        val snapshot = FrozenLibrary(File(filesDir, "library"), settings.librarySnapshotId).info()
-        content?.addView(infoCard(if (snapshot.available) "VERIFIED SNAPSHOT" else "NO VERIFIED SNAPSHOT", snapshot.message), matchWrap())
-        if (snapshot.available) {
+        addTitle("Frozen local library", "Selected sources are copied, validated and frozen in this app's private storage. The Termux library is never moved or edited.")
+        val libraryRoot = File(filesDir, "library")
+        val pinForCheck = settings.librarySnapshotId
+        val key = "${libraryRoot.absolutePath}|$pinForCheck"
+        val snapshot = libraryInfoCache.takeIf { libraryInfoCacheKey == key }
+        if (snapshot == null) {
+            content?.addView(infoCard("CHECKING SNAPSHOT", "Verifying the local read-only tree and pin…"), matchWrap())
+            if (libraryInfoCheckKey != key) {
+                libraryInfoCheckKey = key
+                executor.execute {
+                    val verified = FrozenLibrary(libraryRoot, pinForCheck).info()
+                    postUi {
+                        if (libraryInfoCheckKey == key) {
+                            libraryInfoCheckKey = null
+                            libraryInfoCacheKey = key
+                            libraryInfoCache = verified
+                            val currentKey = "${libraryRoot.absolutePath}|${settings.librarySnapshotId}"
+                            if (!isFinishing && !isDestroyed && currentPage == Page.LIBRARY && currentKey == key) render()
+                        }
+                    }
+                }
+            }
+        } else {
+            content?.addView(infoCard(if (snapshot.available) "VERIFIED SNAPSHOT" else "NO VERIFIED SNAPSHOT", snapshot.message), matchWrap())
+        }
+        if (snapshot?.available == true) {
             content?.addView(text("${snapshot.sourceCount} sources · pinned as ${snapshot.snapshotId}", 13, 0xFFB9D9C8.toInt()).apply { setPadding(dp(4), dp(9), 0, dp(12)) }, matchWrap())
         }
-        content?.addView(text("The importer checks manifest structure, source hashes, snapshot identity and size limits before replacing an existing Android copy.", 13, MUTED), matchWrap(top = 10))
-        val import = primaryButton(if (snapshot.available) "Replace imported Android library" else "Import frozen library folder")
+        content?.addView(text("The selected folder can contain source-only .md/.txt files or an already frozen snapshot. Android validates it in private staging, then shows the exact snapshot pin before an explicit install, replace or repin confirmation.", 13, MUTED), matchWrap(top = 10))
+        val import = primaryButton(if (snapshot?.available == true) "Prepare another library folder" else "Freeze or import a library folder")
         import.setOnClickListener { launchLibraryPicker() }
         content?.addView(import, matchWrap(top = 12))
-        if (!snapshot.available && !File(filesDir, "library").exists()) {
+        if (libraryRoot.isDirectory && snapshot?.available != true) {
+            val recover = smallButton("Validate and adopt existing library pin")
+            recover.setOnClickListener { confirmExistingPinRecovery() }
+            content?.addView(recover, matchWrap(top = 8))
+        }
+        if (snapshot?.available != true && !libraryRoot.exists()) {
             val demo = smallButton("Create app-private demo library")
             demo.setOnClickListener { confirmDemoLibraryCreation() }
             content?.addView(demo, matchWrap(top = 8))
         }
-        content?.addView(infoCard("LIBRARY REQUIREMENTS", "Set the expected snapshot ID in Settings first. It must match the pin in the existing Termux config.json. The selected folder must contain manifest.json and only its declared .md/.txt source files."), matchWrap(top = 12))
+        content?.addView(infoCard("PIN RECOVERY", "A pin is adopted only after the complete read-only tree, manifest, declared file set, source hashes and snapshot identity validate. A changed pin requires a separate confirmation; validation never edits the existing library."), matchWrap(top = 12))
+        content?.addView(infoCard("PORTABLE PROJECT EXPORT", "Path exclusions and recognizable-secret checks are heuristic. Android SAF cannot prove that a provider did not resolve a link outside the selected folder; use only a trusted local project and review the archive before sharing."), matchWrap(top = 16))
+        val exportButton = smallButton("Create verified portable export")
+        exportButton.setOnClickListener { launchPortableProjectPicker() }
+        content?.addView(exportButton, matchWrap(top = 8))
+        val sharePrevious = smallButton("Verify a saved export and share it")
+        sharePrevious.setOnClickListener { shareLatestVerifiedExport() }
+        content?.addView(sharePrevious, matchWrap(top = 6))
+    }
+
+    private fun invalidateLibraryInfo() {
+        libraryInfoCacheKey = null
+        libraryInfoCache = null
     }
 
     private fun confirmDemoLibraryCreation() {
@@ -328,19 +439,21 @@ class MainActivity : Activity() {
             .setMessage("This creates the same small sample text used by the Termux demo setup, but only inside this app's private storage. It refuses to overwrite any existing Android library and does not touch Termux files. The sample text is for retrieval testing, not horticultural advice.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Create demo") { _, _ ->
+                val expectedPin = settings.librarySnapshotId
                 executor.execute {
                     try {
                         val result = DemoLibrarySeeder.createDemoLibrary(File(filesDir, "library"))
                         require(result.available && result.snapshotId.isNotBlank()) { "demo snapshot did not verify" }
-                        val updated = settings.copy(librarySnapshotId = result.snapshotId)
-                        settingsStore.save(updated)
-                        mainHandler.post {
-                            settings = updated
+                        settingsStore.updateLibrarySnapshotId(result.snapshotId, expectedPin)
+                        postUi {
+                            settings = settings.copy(librarySnapshotId = result.snapshotId)
+                            invalidateLibraryInfo()
                             toast("App-private demo library created and pinned: ${result.snapshotId}")
                             if (currentPage == Page.LIBRARY) render()
                         }
                     } catch (exception: Exception) {
-                        mainHandler.post {
+                        postUi {
+                            invalidateLibraryInfo()
                             toast("Demo setup stopped: ${exception.message ?: "the library could not be created"}")
                             if (currentPage == Page.LIBRARY) render()
                         }
@@ -351,25 +464,247 @@ class MainActivity : Activity() {
     }
 
     private fun launchLibraryPicker() {
-        if (!settings.librarySnapshotId.matches(Regex("snapshot-[0-9a-f]{16}"))) {
-            toast("Set the expected snapshot ID in Settings before importing.")
-            return
-        }
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
-        )
-        startActivityForResult(intent, REQUEST_LIBRARY)
+        AlertDialog.Builder(this)
+            .setTitle("Choose a trusted local library folder")
+            .setMessage("The app accepts only Android's built-in on-device storage provider and validates copied bytes, but SAF cannot prove physical folder containment or guarantee descriptor-anchored no-follow behavior. Continue only with a folder whose files you trust.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Choose local folder") { _, _ ->
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                ).putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                startActivityForResult(intent, REQUEST_LIBRARY)
+            }
+            .show()
     }
 
-    private fun importLibrary(uri: Uri, replace: Boolean) {
-        val pin = settings.librarySnapshotId
+    private fun prepareLibrary(uri: Uri) {
+        if (uri.authority != PortableProjectExporter.LOCAL_STORAGE_AUTHORITY) {
+            toast("For privacy, library setup reads only on-device storage folders.")
+            return
+        }
         executor.execute {
             try {
-                val result = FrozenLibrary.importFromTree(this, uri, pin, replace)
-                mainHandler.post { toast(result.message); if (currentPage == Page.LIBRARY) render() }
+                val preparation = FrozenLibrary.prepareFromTree(this, uri)
+                if (!retainPreparation(preparation)) {
+                    runCatching { FrozenLibrary.discardPreparation(this, preparation) }
+                    return@execute
+                }
+                postPreparationUi(preparation) { confirmPreparedLibrary(preparation) }
             } catch (exception: Exception) {
-                mainHandler.post { toast("Import stopped: ${exception.message ?: "invalid library"}"); if (currentPage == Page.LIBRARY) render() }
+                postUi { toast("Library preparation stopped: ${exception.message ?: "the selected folder could not be verified"}") }
             }
+        }
+    }
+
+    private fun confirmPreparedLibrary(preparation: FrozenLibrary.Preparation) {
+        executor.execute {
+            try {
+                val latestSettings = settingsStore.load()
+                val libraryRoot = File(filesDir, "library")
+                val currentExists = Files.exists(libraryRoot.toPath(), LinkOption.NOFOLLOW_LINKS)
+                val currentPin = if (currentExists && libraryRoot.isDirectory && !Files.isSymbolicLink(libraryRoot.toPath())) {
+                    runCatching { FrozenLibrary(libraryRoot, "").validateForPinRecovery() }.getOrNull()
+                } else null
+                val repin = (latestSettings.librarySnapshotId.isNotBlank() &&
+                    latestSettings.librarySnapshotId != preparation.snapshotId) ||
+                    (currentPin != null && currentPin != preparation.snapshotId)
+                postPreparationUi(preparation) {
+                    showPreparedLibraryConfirmation(preparation, latestSettings, currentExists, currentPin, repin)
+                }
+            } catch (exception: Exception) {
+                discardPendingPreparation(preparation)
+                postUi { toast("Library confirmation stopped: ${exception.message ?: "the saved settings could not be read"}") }
+            }
+        }
+    }
+
+    private fun showPreparedLibraryConfirmation(
+        preparation: FrozenLibrary.Preparation,
+        previousSettings: AppSettings,
+        currentExists: Boolean,
+        currentPin: String?,
+        repin: Boolean,
+    ) {
+        if (!isPreparationPending(preparation)) return
+        val positiveLabel = when {
+            currentExists && repin -> "Repin + replace Android copy"
+            currentExists -> "Replace Android copy"
+            repin -> "Confirm new snapshot pin"
+            else -> "Install verified snapshot"
+        }
+        val message = buildString {
+            append("Validated staging snapshot: ").append(preparation.snapshotId)
+            append("\nSources: ").append(preparation.sourceCount)
+            append("\nSaved pin: ").append(previousSettings.librarySnapshotId.ifBlank { "none" })
+            currentPin?.let { append("\nExisting library pin: ").append(it) }
+            append("\n\nThis action changes only the Android app's private library and saved pin. The prior Android library is kept as a backup until the new snapshot verifies and the new pin saves. The Termux files are not changed.")
+        }
+        var installStarted = false
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Review library snapshot")
+            .setMessage(message)
+            .setNegativeButton(if (currentExists) "Keep current" else "Cancel") { _, _ ->
+                discardPendingPreparation(preparation)
+            }
+            .setPositiveButton(positiveLabel) { _, _ ->
+                installStarted = true
+                installPreparedLibrary(preparation, previousSettings, currentExists, repin)
+            }
+            .create()
+        dialog.setOnCancelListener {
+            if (!installStarted) discardPendingPreparation(preparation)
+        }
+        dialog.show()
+    }
+
+    private fun installPreparedLibrary(
+        preparation: FrozenLibrary.Preparation,
+        previousSettings: AppSettings,
+        allowReplace: Boolean,
+        allowRepin: Boolean,
+    ) {
+        if (!takePendingPreparation(preparation)) {
+            toast("The prepared snapshot is no longer available; prepare it again.")
+            return
+        }
+        try {
+            executor.execute {
+                try {
+                    val result = FrozenLibrary.installPrepared(
+                        this, preparation, settingsStore, previousSettings,
+                        allowReplace = allowReplace, allowRepin = allowRepin,
+                    )
+                    postUi {
+                        settings = settings.copy(librarySnapshotId = preparation.snapshotId)
+                        invalidateLibraryInfo()
+                        toast(result.message)
+                        if (currentPage == Page.LIBRARY) render()
+                    }
+                } catch (exception: Exception) {
+                    runCatching { FrozenLibrary.discardPreparation(this, preparation) }
+                        .exceptionOrNull()?.let(exception::addSuppressed)
+                    postUi {
+                        invalidateLibraryInfo()
+                        toast("Library install stopped: ${exception.message ?: "the snapshot could not be installed safely"}")
+                        if (currentPage == Page.LIBRARY) render()
+                    }
+                }
+            }
+        } catch (exception: RuntimeException) {
+            runCatching { FrozenLibrary.discardPreparation(this, preparation) }
+                .exceptionOrNull()?.let(exception::addSuppressed)
+            postUi { toast("Library install could not start: ${exception.message ?: "the app is closing"}") }
+        }
+    }
+
+    private fun confirmExistingPinRecovery() {
+        val root = File(filesDir, "library")
+        executor.execute {
+            try {
+                val previousSettings = settingsStore.load()
+                val recoveredPin = FrozenLibrary(root, "").validateForPinRecovery()
+                postUi {
+                    val repin = previousSettings.librarySnapshotId.isNotBlank() &&
+                        previousSettings.librarySnapshotId != recoveredPin
+                    val wording = if (repin) "Repin to verified snapshot" else "Adopt verified pin"
+                    AlertDialog.Builder(this)
+                        .setTitle("Review recovered snapshot pin")
+                        .setMessage("The existing read-only library fully validates as $recoveredPin.\n\nSaved pin: ${previousSettings.librarySnapshotId.ifBlank { "none" }}\n\nNo library files will be changed.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton(wording) { _, _ ->
+                            executor.execute {
+                                try {
+                                    settingsStore.updateLibrarySnapshotId(recoveredPin, previousSettings.librarySnapshotId)
+                                    postUi {
+                                        settings = settings.copy(librarySnapshotId = recoveredPin)
+                                        invalidateLibraryInfo()
+                                        toast("Verified snapshot pin saved: $recoveredPin")
+                                        if (currentPage == Page.LIBRARY) render()
+                                    }
+                                } catch (exception: Exception) {
+                                    postUi { toast("Pin not saved: ${exception.message ?: "settings could not be committed"}") }
+                                }
+                            }
+                        }
+                        .show()
+                }
+            } catch (exception: Exception) {
+                postUi { toast("Pin recovery stopped: ${exception.message ?: "the library did not fully validate"}") }
+            }
+        }
+    }
+
+    private fun launchPortableProjectPicker() {
+        AlertDialog.Builder(this)
+            .setTitle("Review portable export limits")
+            .setMessage("The export stays on this device until you explicitly share it, but Android SAF cannot prove that a provider did not resolve a link outside the selected folder. Secret detection is heuristic, not a guarantee. Choose only a trusted local project folder and review the archive before sharing.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Choose local project") { _, _ ->
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                ).putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                startActivityForResult(intent, REQUEST_PORTABLE_PROJECT)
+            }
+            .show()
+    }
+
+    private fun exportPortableProject(uri: Uri) {
+        if (uri.authority != PortableProjectExporter.LOCAL_STORAGE_AUTHORITY) {
+            toast("For privacy, portable export reads only on-device storage, not cloud or third-party folders.")
+            return
+        }
+        toast("Scanning the selected project locally…")
+        executor.execute {
+            try {
+                val snapshot = PortableProjectExporter.captureFromLocalTree(this, uri)
+                val result = PortableProjectExporter.export(snapshot, File(filesDir, "portable-exports"))
+                postUi { showPortableExportResult(result) }
+            } catch (exception: Exception) {
+                postUi {
+                    toast("Portable export stopped: ${exception.message ?: "the selected project could not be verified"}")
+                }
+            }
+        }
+    }
+
+    private fun showPortableExportResult(result: PortableProjectExporter.ExportResult) {
+        AlertDialog.Builder(this)
+            .setTitle("Portable export verified")
+            .setMessage("${result.fileCount} files\nTree SHA-256: ${result.treeSha256}\nZIP SHA-256: ${result.archiveSha256}\n\nThe verified output pair is in app-private storage. Source exclusions and secret detection are heuristic, and Android SAF cannot prove physical containment when a provider resolves links. Review the archive before sharing. Sharing sends only the ZIP and manifest after you choose a recipient; that provider controls durability of its copy.")
+            .setNegativeButton("Done", null)
+            .setPositiveButton("Share ZIP + manifest") { _, _ -> sharePortableExport(result) }
+            .show()
+    }
+
+    private fun shareLatestVerifiedExport() {
+        toast("Verifying saved export pairs locally…")
+        executor.execute {
+            val result = PortableProjectExporter.findVerifiedExports(File(filesDir, "portable-exports")).firstOrNull()
+            postUi {
+                if (result == null) toast("No complete verified portable export is saved on this device.")
+                else showPortableExportResult(result)
+            }
+        }
+    }
+
+    private fun sharePortableExport(result: PortableProjectExporter.ExportResult) {
+        try {
+            val authority = "$packageName.portable-exports"
+            val zipUri = Uri.Builder().scheme("content").authority(authority)
+                .appendPath(result.exportId).appendPath(PortableProjectExporter.ARCHIVE_NAME).build()
+            val manifestUri = Uri.Builder().scheme("content").authority(authority)
+                .appendPath(result.exportId).appendPath(PortableProjectExporter.MANIFEST_NAME).build()
+            val share = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "*/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(zipUri, manifestUri))
+                clipData = ClipData.newUri(contentResolver, "THE NIGHTMARE portable export", zipUri).apply {
+                    addItem(ClipData.Item(manifestUri))
+                }
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Share verified portable export"))
+        } catch (exception: Exception) {
+            toast("Could not open the Android share sheet: ${exception.message ?: "sharing unavailable"}")
         }
     }
 
@@ -411,8 +746,8 @@ class MainActivity : Activity() {
         executor.execute {
             try {
                 val items = ReviewStore(this).listQueue(includeReviewed, reviewEpisodeFilter.takeIf { it.isNotBlank() })
-                mainHandler.post {
-                    if (target.parent == null) return@post
+                postUi {
+                    if (target.parent == null) return@postUi
                     if (items.isEmpty()) {
                         target.addView(infoCard("QUEUE EMPTY", "No matching monitor observations are stored in this app. The Android app does not generate detector findings."), matchWrap())
                     } else {
@@ -420,7 +755,7 @@ class MainActivity : Activity() {
                     }
                 }
             } catch (exception: Exception) {
-                mainHandler.post {
+                postUi {
                     if (target.parent != null) target.addView(infoCard("QUEUE ERROR", exception.message ?: "Could not validate review records."), matchWrap())
                 }
             }
@@ -492,9 +827,9 @@ class MainActivity : Activity() {
                 executor.execute {
                     try {
                         val prepared = ReviewStore(this).prepareNextEpisode(sourceId, nextId)
-                        mainHandler.post { dialog.dismiss(); showPreparedNextEpisode(prepared) }
+                        postUi { dialog.dismiss(); showPreparedNextEpisode(prepared) }
                     } catch (exception: Exception) {
-                        mainHandler.post { toast("Preparation stopped: ${exception.message}") }
+                        postUi { toast("Preparation stopped: ${exception.message}") }
                     }
                 }
             }
@@ -533,8 +868,8 @@ class MainActivity : Activity() {
                     val reviewerId = reviewer.text.toString().trim()
                     require(reviewerId.isNotBlank()) { "Enter the human reviewer ID label in Settings or here." }
                     if (settings.reviewerId != reviewerId) {
-                        settings = settings.copy(reviewerId = reviewerId)
-                        settingsStore.save(settings)
+                        val baseline = settings
+                        settings = settingsStore.saveMerged(baseline.copy(reviewerId = reviewerId), baseline)
                     }
                     val text = note?.text?.toString()?.trim().orEmpty()
                     val rationale = editRationale?.text?.toString()?.trim().orEmpty()
@@ -543,9 +878,9 @@ class MainActivity : Activity() {
                             ReviewStore(this).decide(item.observationId, action, reviewerId,
                                 reason = if (action == "reject") text else rationale,
                                 editText = if (action == "edit") text else "")
-                            mainHandler.post { toast("Human decision appended."); dialog.dismiss(); if (currentPage == Page.REVIEW) render() }
+                            postUi { toast("Human decision appended."); dialog.dismiss(); if (currentPage == Page.REVIEW) render() }
                         } catch (exception: Exception) {
-                            mainHandler.post { toast("Decision not recorded: ${exception.message}") }
+                            postUi { toast("Decision not recorded: ${exception.message}") }
                         }
                     }
                 } catch (exception: Exception) { toast(exception.message ?: "Decision is invalid.") }
@@ -623,13 +958,13 @@ class MainActivity : Activity() {
                             evidenceRefs = evidenceRefs,
                             coverage = coverageValue,
                         )
-                        mainHandler.post {
+                        postUi {
                             dialog.dismiss()
                             toast("Machine-attributed observation appended; source was not authenticated.")
                             if (currentPage == Page.REVIEW) render()
                         }
                     } catch (exception: Exception) {
-                        mainHandler.post {
+                        postUi {
                             button.isEnabled = true
                             toast("Observation not recorded: ${exception.message ?: "invalid monitor output"}")
                         }
@@ -648,9 +983,9 @@ class MainActivity : Activity() {
                 val count = if (stream == "human-decisions") store.importHumanDecisionJournal(input)
                     else store.importMonitorJournal(stream, input)
                 val label = if (stream == "human-decisions") "human decision" else "$stream monitor"
-                mainHandler.post { toast("Imported $count $label record(s)."); if (currentPage == Page.REVIEW) render() }
+                postUi { toast("Imported $count $label record(s)."); if (currentPage == Page.REVIEW) render() }
             } catch (exception: Exception) {
-                mainHandler.post { toast("Review import stopped: ${exception.message}"); if (currentPage == Page.REVIEW) render() }
+                postUi { toast("Review import stopped: ${exception.message}"); if (currentPage == Page.REVIEW) render() }
             }
         }
     }
@@ -661,17 +996,10 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || data?.data == null) return
         val uri = data.data!!
         when (requestCode) {
-            REQUEST_LIBRARY -> {
-                if (File(filesDir, "library").exists()) {
-                    AlertDialog.Builder(this).setTitle("Replace Android library copy?")
-                        .setMessage("This replaces only the imported copy inside THE NIGHTMARE. The Termux library is not touched.")
-                        .setNegativeButton("Keep current", null)
-                        .setPositiveButton("Replace") { _, _ -> importLibrary(uri, true) }
-                        .show()
-                } else importLibrary(uri, false)
-            }
+            REQUEST_LIBRARY -> prepareLibrary(uri)
             REQUEST_REVIEW_IMPORT -> pendingMonitorStream?.let { importMonitor(uri, it) }
             REQUEST_CONFIG_IMPORT -> importTermuxConfig(uri)
+            REQUEST_PORTABLE_PROJECT -> exportPortableProject(uri)
         }
     }
 
@@ -714,7 +1042,7 @@ class MainActivity : Activity() {
                 val input = contentResolver.openInputStream(uri) ?: error("could not open selected config file")
                 val configText = input.use { readUtf8Bounded(it, MAX_CONFIG_BYTES) }
                 val imported = SettingsStore.parseTermuxConfig(configText)
-                mainHandler.post {
+                postUi {
                     val dataNote = if (imported.dataDirectoryIgnored) {
                         "The config contains data_dir, but the app will ignore it and will not open that path."
                     } else {
@@ -732,7 +1060,7 @@ class MainActivity : Activity() {
                         }.show()
                 }
             } catch (exception: Exception) {
-                mainHandler.post { toast("Config import stopped: ${exception.message ?: "invalid config file"}") }
+                postUi { toast("Config import stopped: ${exception.message ?: "invalid config file"}") }
             }
         }
     }
@@ -771,8 +1099,8 @@ class MainActivity : Activity() {
         }
         val reviewer = settingsFields["reviewer"]?.text?.toString()?.trim().orEmpty()
         require(reviewer.length <= 128) { "reviewer label is too long" }
-        settings = AppSettings(base, model, timeout, pin, reviewer)
-        settingsStore.save(settings)
+        val baseline = settings
+        settings = settingsStore.saveMerged(AppSettings(base, model, timeout, pin, reviewer), baseline)
         settingsLoadWarning = null
         toast("Settings saved on this device.")
         if (rerender) render()
@@ -784,16 +1112,17 @@ class MainActivity : Activity() {
 
     private fun testLocalConnection(button: Button) {
         if (!saveSettings(rerender = false)) return
+        val settingsForTest = settings
         button.isEnabled = false
         button.text = "Checking loopback…"
         executor.execute {
             try {
-                val message = LocalHarness.testConnection(settings)
-                mainHandler.post { toast(message) }
+                val message = LocalHarness.testConnection(settingsForTest)
+                postUi { toast(message) }
             } catch (exception: Exception) {
-                mainHandler.post { toast("Local connection failed: ${exception.message}") }
+                postUi { toast("Local connection failed: ${exception.message}") }
             } finally {
-                mainHandler.post { button.isEnabled = true; button.text = "Test local server connection" }
+                postUi { button.isEnabled = true; button.text = "Test local server connection" }
             }
         }
     }
@@ -878,9 +1207,12 @@ class MainActivity : Activity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     companion object {
+        private val ABANDONED_STAGING_LOCK = Any()
+        private var abandonedStagingCleanupScheduled = false
         private const val REQUEST_LIBRARY = 4101
         private const val REQUEST_REVIEW_IMPORT = 4102
         private const val REQUEST_CONFIG_IMPORT = 4103
+        private const val REQUEST_PORTABLE_PROJECT = 4104
         private const val MAX_CONFIG_BYTES = 1024 * 1024
         private const val ACCENT = 0xFFC6B2FF.toInt()
         private const val MUTED = 0xFFAAA3B3.toInt()

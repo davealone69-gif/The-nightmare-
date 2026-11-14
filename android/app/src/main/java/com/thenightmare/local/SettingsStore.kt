@@ -9,7 +9,9 @@ class SettingsStore(context: Context) {
     var loadWarning: String? = null
         private set
 
-    fun load(): AppSettings {
+    fun load(): AppSettings = synchronized(PREFERENCES_LOCK) { loadLocked() }
+
+    private fun loadLocked(): AppSettings {
         val values = preferences.all
         val warnings = mutableListOf<String>()
         var needsRepair = false
@@ -71,11 +73,13 @@ class SettingsStore(context: Context) {
             reviewerId = reviewer,
         )
         loadWarning = warnings.distinct().joinToString(" ").ifBlank { null }
-        if (needsRepair) save(result)
+        if (needsRepair) saveLocked(result)
         return result
     }
 
-    fun save(settings: AppSettings) {
+    fun save(settings: AppSettings) = synchronized(PREFERENCES_LOCK) { saveLocked(settings) }
+
+    private fun saveLocked(settings: AppSettings) {
         val base = LocalHarness.validateBaseUrl(settings.baseUrl)
         val model = settings.model.trim()
         require(model.length <= MAX_MODEL_LENGTH) { "model identifier must be at most $MAX_MODEL_LENGTH characters" }
@@ -96,12 +100,52 @@ class SettingsStore(context: Context) {
             .commit()) { "settings could not be saved to app-private storage" }
     }
 
+    fun saveMerged(edited: AppSettings, baseline: AppSettings): AppSettings = synchronized(PREFERENCES_LOCK) {
+        val current = loadLocked()
+        val merged = mergeSettings(edited, baseline, current)
+        saveLocked(merged)
+        merged
+    }
+
+    fun updateLibrarySnapshotId(snapshotId: String, expectedCurrentPin: String): AppSettings = synchronized(PREFERENCES_LOCK) {
+        val current = loadLocked()
+        require(current.librarySnapshotId == expectedCurrentPin) { "library pin changed after confirmation; review the library action again" }
+        val updated = current.copy(librarySnapshotId = snapshotId)
+        saveLocked(updated)
+        updated
+    }
+
+    fun restoreLibrarySnapshotId(previousPin: String, attemptedPin: String) = synchronized(PREFERENCES_LOCK) {
+        val current = loadLocked()
+        when (current.librarySnapshotId) {
+            previousPin -> Unit
+            attemptedPin -> saveLocked(current.copy(librarySnapshotId = previousPin))
+            else -> error("library pin changed during rollback; refusing to overwrite newer settings")
+        }
+    }
+
     companion object {
+        private val PREFERENCES_LOCK = Any()
         const val DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
         const val MAX_MODEL_LENGTH = 256
         const val MAX_REVIEWER_LENGTH = 128
         private const val DEFAULT_DATA_DIRECTORY = "../the-nightmare-data"
         private val SNAPSHOT_PIN = Regex("snapshot-[0-9a-f]{16}")
+
+        internal fun mergeSettings(edited: AppSettings, baseline: AppSettings, current: AppSettings): AppSettings {
+            if (edited.librarySnapshotId != baseline.librarySnapshotId &&
+                current.librarySnapshotId != baseline.librarySnapshotId &&
+                current.librarySnapshotId != edited.librarySnapshotId) {
+                error("library pin changed while settings were being edited; review the current pin before saving")
+            }
+            return AppSettings(
+                baseUrl = if (edited.baseUrl != baseline.baseUrl) edited.baseUrl else current.baseUrl,
+                model = if (edited.model != baseline.model) edited.model else current.model,
+                timeoutSeconds = if (edited.timeoutSeconds != baseline.timeoutSeconds) edited.timeoutSeconds else current.timeoutSeconds,
+                librarySnapshotId = if (edited.librarySnapshotId != baseline.librarySnapshotId) edited.librarySnapshotId else current.librarySnapshotId,
+                reviewerId = if (edited.reviewerId != baseline.reviewerId) edited.reviewerId else current.reviewerId,
+            )
+        }
 
         fun parseTermuxConfig(jsonText: String): ImportedTermuxConfig {
             val config = try {

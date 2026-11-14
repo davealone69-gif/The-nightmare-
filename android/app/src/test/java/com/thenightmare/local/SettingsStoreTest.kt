@@ -109,4 +109,28 @@ class SettingsStoreTest {
 
         assertFalse(Files.exists(marker))
     }
+
+    @Test
+    fun mergedSettingsPreserveConcurrentFieldsAndRejectConflictingPinEdits() {
+        val baseline = AppSettings()
+        val current = baseline.copy(
+            model = "newer-model",
+            reviewerId = "newer-reviewer",
+            librarySnapshotId = "snapshot-aaaaaaaaaaaaaaaa",
+        )
+        val edited = baseline.copy(baseUrl = "http://127.0.0.1:11435/v1")
+        val merged = SettingsStore.mergeSettings(edited, baseline, current)
+        assertEquals("http://127.0.0.1:11435/v1", merged.baseUrl)
+        assertEquals("newer-model", merged.model)
+        assertEquals("newer-reviewer", merged.reviewerId)
+        assertEquals("snapshot-aaaaaaaaaaaaaaaa", merged.librarySnapshotId)
+
+        assertThrows(IllegalStateException::class.java) {
+            SettingsStore.mergeSettings(
+                edited.copy(librarySnapshotId = "snapshot-bbbbbbbbbbbbbbbb"),
+                baseline,
+                current,
+            )
+        }
+    }
 }
