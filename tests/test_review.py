@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from agent_harness import library as library_module
 from agent_harness.cli import main
 from agent_harness.review import (
     AppendOnlyWriter,
@@ -411,14 +412,25 @@ class ReviewTests(unittest.TestCase):
                 "data_dir": "../external-data",
             }), encoding="utf-8")
             output = io.StringIO()
-            with redirect_stdout(output):
-                result = main([
-                    "--config", str(config_path),
-                    "--episode-id", "next-episode",
-                    "--next-episode-from", "source-episode",
-                    "New independently reviewed task",
-                ])
+            real_open = os.open
+            direct_root_attempts = []
+
+            def deny_direct_root(path, flags, *args, **kwargs):
+                if os.fspath(path) == os.sep and kwargs.get("dir_fd") is None:
+                    direct_root_attempts.append(os.fspath(path))
+                    raise PermissionError(13, "Permission denied", os.sep)
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(library_module.os, "open", side_effect=deny_direct_root):
+                with redirect_stdout(output):
+                    result = main([
+                        "--config", str(config_path),
+                        "--episode-id", "next-episode",
+                        "--next-episode-from", "source-episode",
+                        "New independently reviewed task",
+                    ])
             self.assertEqual(result, 0)
+            self.assertEqual(direct_root_attempts, [])
             self.assertEqual(len(Handler.payloads), 3)
             first_user_message = Handler.payloads[0]["messages"][1]["content"]
             encoded_task = first_user_message.split("Task text (JSON string):\n", 1)[1].split("\n\nPrior worker results", 1)[0]

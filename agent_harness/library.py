@@ -158,13 +158,46 @@ class _SafeLibraryTree:
 
     def _open_root(self) -> None:
         try:
-            current_fd = os.open(os.sep, self._flags(directory=True))
+            current_fd = os.open(".", self._flags(directory=True))
+            cwd_stat = os.fstat(current_fd)
+            if not self._same_object(cwd_stat, os.stat(".", follow_symlinks=False)):
+                os.close(current_fd)
+                raise LibraryError("current directory changed while opening its descriptor")
         except OSError as exc:
-            self._raise_io("cannot open filesystem root for library validation", exc)
+            self._raise_io("cannot open current directory for library validation", exc)
         self._fds.append(current_fd)
 
-        absolute = os.path.abspath(os.fspath(self.root))
-        components = [part for part in absolute.split(os.sep) if part]
+        raw_path = os.fspath(self.root)
+        absolute_path = os.path.isabs(raw_path)
+        if absolute_path:
+            # Ascend from the pinned cwd descriptor to the real filesystem root.
+            # This avoids opening "/" and does not rely on a cwd string that may
+            # become stale if the process directory is renamed concurrently.
+            while True:
+                current_stat = os.fstat(current_fd)
+                try:
+                    expected = os.stat("..", dir_fd=current_fd, follow_symlinks=False)
+                    if not stat.S_ISDIR(expected.st_mode):
+                        raise LibraryError("library path ancestor is not a directory")
+                    child_fd = _openat(current_fd, "..", self._flags(directory=True))
+                    opened = os.fstat(child_fd)
+                except OSError as exc:
+                    self._raise_io("cannot securely open frozen library path ancestor", exc)
+                if not stat.S_ISDIR(opened.st_mode) or not self._same_snapshot(expected, opened):
+                    os.close(child_fd)
+                    raise LibraryError("frozen library path ancestor changed while it was being opened")
+                if self._same_object(current_stat, opened):
+                    os.close(child_fd)
+                    break
+                self._fds.append(child_fd)
+                self.ancestry.append((current_fd, "..", expected, child_fd))
+                current_fd = child_fd
+
+        components = [
+            part
+            for part in raw_path.split(os.sep)
+            if part and part != os.curdir
+        ]
         for index, component in enumerate(components):
             try:
                 expected = os.stat(component, dir_fd=current_fd, follow_symlinks=False)

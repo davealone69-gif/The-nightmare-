@@ -265,6 +265,75 @@ class FrozenLibraryTests(unittest.TestCase):
                     missing_library.search("tree fern indirect light")
                 self.assertEqual(caught.exception.reason, "LIBRARY_UNAVAILABLE")
 
+    def test_pin_existing_works_when_direct_filesystem_root_open_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "data" / "data" / "com.termux" / "files" / "home"
+            root = home / "project" / "external-data" / "library"
+            library = make_library(root)
+            previous_cwd = os.getcwd()
+            os.chdir(str(home))
+            real_open = os.open
+            denied_root_opens = []
+
+            def deny_direct_root(path, flags, *args, **kwargs):
+                if os.fspath(path) == os.sep and kwargs.get("dir_fd") is None:
+                    denied_root_opens.append(os.fspath(path))
+                    raise PermissionError(13, "Permission denied", os.sep)
+                return real_open(path, flags, *args, **kwargs)
+
+            try:
+                with patch("agent_harness.library.os.open", side_effect=deny_direct_root):
+                    snapshot_id = freeze_library.pin_existing(root, None)
+                self.assertEqual(snapshot_id, library.expected_snapshot_id)
+                self.assertEqual(denied_root_opens, [])
+            finally:
+                os.chdir(previous_cwd)
+
+    def test_relative_library_path_stays_anchored_when_cwd_is_renamed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            original_cwd = home / "project"
+            replacement_cwd = home / "replacement-project"
+            moved_cwd = home / "project-original"
+            home.mkdir()
+            original_cwd.mkdir()
+            replacement_cwd.mkdir()
+            original_library = make_library(original_cwd / "external-data" / "library")
+            replacement_library = make_library(
+                replacement_cwd / "external-data" / "library",
+                docs=[
+                    (
+                        "DOC-REPLACEMENT",
+                        "replacement.md",
+                        "Replacement guide",
+                        "This replacement corpus is not the original one.\n",
+                    )
+                ],
+            )
+            self.assertNotEqual(
+                original_library.expected_snapshot_id,
+                replacement_library.expected_snapshot_id,
+            )
+            previous_cwd = os.getcwd()
+            os.chdir(str(original_cwd))
+            real_openat = library_module._openat
+            renamed = [False]
+
+            def rename_cwd_before_first_path_component(directory_fd, name, flags):
+                if not renamed[0]:
+                    renamed[0] = True
+                    original_cwd.rename(moved_cwd)
+                    replacement_cwd.rename(original_cwd)
+                return real_openat(directory_fd, name, flags)
+
+            try:
+                with patch.object(library_module, "_openat", side_effect=rename_cwd_before_first_path_component):
+                    snapshot_id = FrozenLibrary(Path("external-data/library")).validate_for_pin_recovery()
+                self.assertTrue(renamed[0])
+                self.assertEqual(snapshot_id, original_library.expected_snapshot_id)
+            finally:
+                os.chdir(previous_cwd)
+
     def test_recovery_rejects_manifest_id_not_derived_from_source_metadata(self) -> None:
             with tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir) / "library"
