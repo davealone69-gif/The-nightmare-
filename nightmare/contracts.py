@@ -64,11 +64,15 @@ class Output:
             errors.append("ghost output requires component_kind=code")
         if not is_ghost and self.component_kind != "model":
             errors.append("non-ghost output requires component_kind=model")
-        if self.component_kind == "model" and approved_components is not None:
-            if self.component_hash not in approved_components:
+        if self.component_kind == "model":
+            if approved_components is None:
+                errors.append("approved model artifact manifest is required")
+            elif self.component_hash not in approved_components:
                 errors.append("component_hash is not an approved model artifact")
-        if self.component_kind == "code" and approved_code_components is not None:
-            if self.component_hash not in approved_code_components:
+        if self.component_kind == "code":
+            if approved_code_components is None:
+                errors.append("approved code artifact manifest is required")
+            elif self.component_hash not in approved_code_components:
                 errors.append("component_hash is not an approved code artifact")
 
         if any(not isinstance(x, str) or not x for x in self.skill_capsules):
