@@ -18,7 +18,7 @@ A supervised multi-agent system with stateless workers, two training-time observ
 - Phase 0 defaults are documented. The encrypted sealed-log store, named independent reviewer, owner identity, and tested stop path are still deployment blockers.
 - THE WORLD is defined as a separate persistent simulated-world experiment with ghost-observed and clean comparison variants. It remains deferred until NIGHTMARE Phases 0–8 pass and separate authorization is given.
 
-**Verification:** GitHub file/commit presence is verified. Python test execution and runtime integration are still **UNVERIFIED**. The code remains a reference scaffold; do not describe it as production-ready. See the Phase 0 policy for unresolved operational configuration blockers.
+**Verification:** GitHub file/commit presence is verified. A Python 3.12 unittest workflow is committed, but no workflow run or status result is currently available; test execution therefore remains **UNVERIFIED**. Runtime integration is also **UNVERIFIED**. The code remains a reference scaffold; do not describe it as production-ready. See the Phase 0 policy for unresolved operational configuration blockers.
 
 ## Complete system summary
 
