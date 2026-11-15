@@ -17,9 +17,13 @@ class Anchor:
         merged = []
         for item in queue_a:
             row = asdict(item) if hasattr(item, "__dataclass_fields__") else dict(item)
+            row.pop("role", None)
+            row.pop("source_id", None)
             merged.append({**row, "_label": "review"})
         for item in queue_b:
             row = asdict(item) if hasattr(item, "__dataclass_fields__") else dict(item)
+            row.pop("role", None)
+            row.pop("source_id", None)
             merged.append({**row, "_label": "second look"})
         # Stable timestamp ordering; source identity is not included in the view.
         return sorted(merged, key=lambda x: x.get("ts", x.get("created_at", 0)))
