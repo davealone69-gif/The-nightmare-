@@ -84,7 +84,7 @@ class Anchor:
 
     def solo_recommit(self, *, slice_reopened: bool, slice_reread: bool,
                       stop_button_tested: bool, human_confirmation: bool,
-                      now: float | None = None) -> dict[str, Any]:
+                      sealed_log: Any, now: float | None = None) -> dict[str, Any]:
         """Monthly solo-anchor check; failure pauses the system."""
         timestamp = time.time() if now is None else now
         if not all((slice_reopened, slice_reread, stop_button_tested, human_confirmation)):
@@ -94,6 +94,7 @@ class Anchor:
                   "slice_reopened": True, "slice_reread": True,
                   "stop_button_tested": True, "human_confirmation": True,
                   "decided_at": timestamp}
+        sealed_log.append(self.anchor_id, "solo_monthly_recommitment", record)
         self._decisions.append(record)
         self.last_recommitted_at = timestamp
         if self.pause_reason in {None, "monthly solo re-commitment incomplete", "initial solo anchor commitment required"}:
