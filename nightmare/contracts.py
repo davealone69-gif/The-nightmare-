@@ -36,13 +36,14 @@ class Output:
     def validate(self, approved_components: set[str] | None = None,
                  approved_code_components: set[str] | None = None) -> list[str]:
         errors: list[str] = []
-        if not self.run_id.strip():
-            errors.append("missing run_id")
-        if not self.role.strip():
-            errors.append("missing role")
+        if not isinstance(self.run_id, str) or not self.run_id.strip():
+            errors.append("missing or invalid run_id")
+        if not isinstance(self.role, str) or not self.role.strip():
+            errors.append("missing or invalid role")
         if self.status not in ("ok", "abstain", "error"):
             errors.append("invalid status")
-        if not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0:
+        if (isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float))
+                or not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0):
             errors.append("confidence must be finite and between 0 and 1")
         if self.status == "ok" and self.payload is None:
             errors.append("ok requires payload")
@@ -53,8 +54,8 @@ class Output:
 
         if self.component_kind not in ("model", "code"):
             errors.append("component_kind must be model or code")
-        if not self.component_hash:
-            errors.append("missing component_hash")
+        if not isinstance(self.component_hash, str) or not self.component_hash:
+            errors.append("missing or invalid component_hash")
         elif (len(self.component_hash) != 64 or
               any(ch not in "0123456789abcdef" for ch in self.component_hash)):
             errors.append("component_hash must be a lowercase SHA-256 hex digest")
@@ -75,9 +76,10 @@ class Output:
             elif self.component_hash not in approved_code_components:
                 errors.append("component_hash is not an approved code artifact")
 
-        if any(not isinstance(x, str) or not x for x in self.skill_capsules):
-            errors.append("skill_capsules must contain non-empty hashes")
-        if not math.isfinite(self.created_at) or self.created_at <= 0:
+        if not isinstance(self.skill_capsules, list) or any(not isinstance(x, str) or not x for x in self.skill_capsules):
+            errors.append("skill_capsules must be a list of non-empty hashes")
+        if (isinstance(self.created_at, bool) or not isinstance(self.created_at, (int, float))
+                or not math.isfinite(self.created_at) or self.created_at <= 0):
             errors.append("created_at must be finite and positive")
         try:
             canonical_json(asdict(self))
