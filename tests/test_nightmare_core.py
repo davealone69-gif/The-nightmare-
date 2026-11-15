@@ -92,10 +92,12 @@ class CoreTests(unittest.TestCase):
 
     def test_anchor_blindness_solo_recommitment_and_rubber_stamp_window(self):
         anchor = Anchor("anchor-1", 0, 9999999999)
+        anchor_tmp = tempfile.TemporaryDirectory()
+        anchor_log = SealedLog(Path(anchor_tmp.name) / "anchor.jsonl")
         self.assertTrue(anchor.monthly_recommitment_due(now=100))
         self.assertTrue(anchor.paused)
         anchor.solo_recommit(slice_reopened=True, slice_reread=True,
-                             stop_button_tested=True, human_confirmation=True, now=100)
+                             stop_button_tested=True, human_confirmation=True, sealed_log=anchor_log, now=100)
         self.assertFalse(anchor.paused)
         view = anchor.merged_view(
             [{"role": "ghost.mandela", "component_hash": CODE_HASH,
@@ -116,10 +118,11 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(status["window_decisions"], 20)
         with self.assertRaises(PermissionError):
             anchor.solo_recommit(slice_reopened=True, slice_reread=True,
-                                 stop_button_tested=False, human_confirmation=True, now=100)
+                                 stop_button_tested=False, human_confirmation=True, sealed_log=anchor_log, now=100)
         record = anchor.solo_recommit(slice_reopened=True, slice_reread=True,
-                                      stop_button_tested=True, human_confirmation=True, now=100)
+                                      stop_button_tested=True, human_confirmation=True, sealed_log=anchor_log, now=100)
         self.assertEqual(record["kind"], "solo_monthly_recommitment")
+        self.assertTrue(verify_chain(anchor_log.path))
         self.assertTrue(anchor.paused, "a monthly re-commitment must not clear a separate safety pause")
         trigger = anchor.event_trigger("anchor_reports_unsafe")
         self.assertTrue(trigger["system_paused"])
@@ -137,6 +140,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(record["event"], "resume_after_independent_review")
             self.assertTrue(verify_chain(resume_log.path))
         self.assertFalse(anchor.paused)
+        anchor_tmp.cleanup()
 
     def test_reset_uses_restarted_server_identity_endpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
