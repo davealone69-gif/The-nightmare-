@@ -33,7 +33,7 @@ class Output:
     seed: int = 0
     created_at: float = field(default_factory=time.time)
 
-    def validate(self, approved_components: set[str] | None = None) -> list[str]:
+    def validate(self, approved_components: set[str] | None = None,\n                 approved_code_components: set[str] | None = None) -> list[str]:
         errors: list[str] = []
         if not self.run_id.strip():
             errors.append("missing run_id")
