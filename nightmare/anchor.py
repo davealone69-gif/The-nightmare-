@@ -7,8 +7,9 @@ import secrets
 import time
 
 IDENTITY_FIELDS = {
-    "role", "source_id", "observer_id", "ghost_id", "queue_id",
-    "component_hash", "component_kind", "model_id", "actor",
+    "role", "source_id", "source_role", "observer_id", "observer", "observer_name",
+    "ghost_id", "ghost", "ghost_name", "queue_id", "component_hash",
+    "source_component_hash", "component_kind", "model_id", "actor", "artifact_path", "file_path",
 }
 def _blind(value):
     if isinstance(value, dict):
