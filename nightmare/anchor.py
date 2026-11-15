@@ -11,6 +11,14 @@ IDENTITY_FIELDS = {
     "ghost_id", "ghost", "ghost_name", "queue_id", "component_hash",
     "source_component_hash", "component_kind", "model_id", "actor", "artifact_path", "file_path",
 }
+def _has_identity(value):
+    if isinstance(value, dict):
+        return any(key in IDENTITY_FIELDS for key in value) or any(_has_identity(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_identity(item) for item in value)
+    return False
+
+
 def _blind(value):
     if isinstance(value, dict):
         return {key: ("monitor_flag" if key == "signal" else _blind(item))
@@ -55,6 +63,8 @@ class Anchor:
                 correction: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.paused:
             raise RuntimeError("anchor protocol is paused; no decisions may be issued")
+        if not isinstance(item, dict) or item.get("_label") not in {"review", "second look"} or _has_identity(item):
+            raise PermissionError("anchor may decide only on a neutral, identity-blinded review item")
         if not isinstance(human_decision, str) or not human_decision.strip():
             raise ValueError("a recorded human decision is required")
         if human_decision not in {"approve", "reject", "defer", "correct"}:
