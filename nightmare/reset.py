@@ -23,6 +23,8 @@ class ResetPlan:
     network_block: Callable[[], bool]
     network_is_blocked: Callable[[], bool]
     restart_model_server: Callable[[], bool]
+    expected_weights_hash: str
+    loaded_weights_hash: Callable[[], str]
     targets: dict[str, str] | None = None
     episode_hostname: str = "nightmare-local"
 
@@ -58,7 +60,7 @@ def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None =
 
 def total_reset(plan: ResetPlan) -> dict[str, Any]:
     report: dict[str, Any] = {"wiped": [], "failed": [], "env_restored": False,
-        "network_blocked": False, "model_server_restarted": False, "seeds_fixed": False}
+        "network_blocked": False, "model_server_restarted": False, "model_hash_verified": False, "seeds_fixed": False}
     targets = plan.targets or DEFAULT_TARGETS
     for name, raw in targets.items():
         try:
@@ -78,12 +80,14 @@ def total_reset(plan: ResetPlan) -> dict[str, Any]:
         report["failed"].append(f"network isolation: {exc}")
     try:
         report["model_server_restarted"] = bool(plan.restart_model_server())
+        report["model_hash_verified"] = (report["model_server_restarted"] and
+            bool(plan.expected_weights_hash) and plan.loaded_weights_hash() == plan.expected_weights_hash)
     except Exception as exc:
         report["failed"].append(f"model server restart: {exc}")
     report["child_env"] = env
     report["post_reset_manifest"] = manifest(targets, env)
     report["complete"] = (not report["failed"] and report["network_blocked"]
-                          and report["model_server_restarted"] and report["env_restored"]
+                          and report["model_server_restarted"] and report["model_hash_verified"] and report["env_restored"]
                           and report["seeds_fixed"])
     return report
 
