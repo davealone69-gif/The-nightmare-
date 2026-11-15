@@ -69,7 +69,8 @@ class CoreTests(unittest.TestCase):
             plan = ResetPlan(
                 baseline_env={"PATH": "/usr/bin"}, fixed_seed=7,
                 network_block=lambda: False, network_is_blocked=lambda: False,
-                restart_model_server=lambda: True, targets={"scratch": str(target)})
+                restart_model_server=lambda: True, expected_weights_hash=WEIGHTS,
+                loaded_weights_hash=lambda: WEIGHTS, targets={"scratch": str(target)})
             result = total_reset(plan)
             self.assertFalse(result["complete"])
             self.assertFalse(target.exists())
