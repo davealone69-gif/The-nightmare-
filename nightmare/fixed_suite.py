@@ -64,5 +64,7 @@ def run_state_equality(adapter: Callable[[dict[str, Any], int], Output],
         suite = run_contract_suite(adapter, weights_hash, seed)
         runs.append({"manifest": reset["post_reset_manifest"], "outputs": suite["outputs"],
                      "suite_passed": suite["passed"]})
-    audit = state_equality_audit(lambda _seed, _reset: runs.pop(0), seed)
-    return {"state_equality": audit, "suite_passed_both": all(r["suite_passed"] for r in runs) if runs else True}
+    suite_passed_both = all(r["suite_passed"] for r in runs)
+    audit_runs = list(runs)
+    audit = state_equality_audit(lambda _seed, _reset: audit_runs.pop(0), seed)
+    return {"state_equality": audit, "suite_passed_both": suite_passed_both}
