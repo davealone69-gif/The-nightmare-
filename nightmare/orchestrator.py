@@ -15,7 +15,7 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str,
             visible_pair: Callable[[list[Output]], dict[str, Any]],
             ghosts: tuple[Any, Any], anchor: Anchor, sealed: SealedLog,
             reset_plan: ResetPlan,
-            human_review: Callable[[dict[str, Any]], tuple[str, dict[str, Any] | None]]) -> dict[str, Any]:
+            human_review: Callable[[dict[str, Any]], tuple[str, str, dict[str, Any] | None]]) -> dict[str, Any]:
     if anchor.paused:
         raise RuntimeError(f"anchor protocol paused: {anchor.pause_reason}")
     if anchor.monthly_recommitment_due():
@@ -75,8 +75,8 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str,
     review_items = anchor.merged_view(observations, [])
     decisions = []
     for item in review_items:
-        decision, correction = human_review(item)
-        result = anchor.approve(item, human_decision=decision, correction=correction)
+        decision, rationale, correction = human_review(item)
+        result = anchor.approve(item, human_decision=decision, rationale=rationale, correction=correction)
         sealed.append(anchor.anchor_id, "human_decision", result)
         decisions.append(result)
 
