@@ -19,9 +19,11 @@ class CoreTests(unittest.TestCase):
         good = Output("r1", "worker", "abstain", abstain_reason="no evidence",
                       component_hash=WEIGHTS, component_kind="model")
         self.assertEqual(good.validate({WEIGHTS}), [])
+        self.assertIn("approved model artifact manifest is required", good.validate())
         ghost = Output("r1", "ghost.mandela", "ok", {"signal": "drift"},
                        component_hash=CODE_HASH, component_kind="code")
         self.assertEqual(ghost.validate(approved_code_components={CODE_HASH}), [])
+        self.assertIn("approved code artifact manifest is required", ghost.validate())
         self.assertIn("component_hash is not an approved code artifact",
                       ghost.validate(approved_code_components={WEIGHTS}))
         bad_kind = Output("r1", "ghost.matrix", "ok", {"signal": "x"},
@@ -99,6 +101,7 @@ class CoreTests(unittest.TestCase):
         anchor.solo_recommit(slice_reopened=True, slice_reread=True,
                              stop_button_tested=True, human_confirmation=True, sealed_log=anchor_log, now=100)
         self.assertFalse(anchor.paused)
+        self.assertFalse(anchor.rubber_stamp_check()["rotate_early"], "fewer than 20 decisions must not trigger")
         view = anchor.merged_view(
             [{"role": "ghost.mandela", "component_hash": CODE_HASH,
               "payload": {"signal": "meaning"}}],
@@ -159,6 +162,14 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(result["complete"])
             self.assertFalse(result["model_hash_verified"])
             self.assertFalse(target.exists())
+            good_plan = ResetPlan(
+                baseline_env={"PATH": "/usr/bin"}, fixed_seed=7,
+                network_block=lambda: True, network_is_blocked=lambda: True,
+                restart_model_server=lambda: True, expected_weights_hash=WEIGHTS,
+                query_model_identity_endpoint=lambda: {"artifact_hash": WEIGHTS}, targets={})
+            good_result = total_reset(good_plan)
+            self.assertTrue(good_result["model_hash_verified"])
+            self.assertTrue(good_result["complete"])
 
     def test_fixed_suite_has_ten_prompts_and_tier_c_is_diagnostic(self):
         self.assertEqual(len(FIXED_PROMPTS), 10)
