@@ -60,7 +60,7 @@ class Output:
               any(ch not in "0123456789abcdef" for ch in self.component_hash)):
             errors.append("component_hash must be a lowercase SHA-256 hex digest")
 
-        is_ghost = self.role.startswith("ghost.")
+        is_ghost = isinstance(self.role, str) and self.role.startswith("ghost.")
         if is_ghost and self.component_kind != "code":
             errors.append("ghost output requires component_kind=code")
         if not is_ghost and self.component_kind != "model":
