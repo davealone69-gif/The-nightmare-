@@ -15,9 +15,9 @@ WEIGHTS = "a" * 64
 class CoreTests(unittest.TestCase):
     def test_output_contract_and_abstention(self):
         good = Output("r1", "worker", "abstain", abstain_reason="no evidence",
-                      weights_hash=WEIGHTS)
+                      component_hash=WEIGHTS, component_kind="model")
         self.assertEqual(good.validate({WEIGHTS}), [])
-        bad = Output("r1", "worker", "ok", weights_hash="")
+        bad = Output("r1", "worker", "ok", component_hash="")
         self.assertTrue(bad.validate())
 
     def test_sealed_log_detects_tampering(self):
