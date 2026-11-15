@@ -109,6 +109,8 @@ class CoreTests(unittest.TestCase):
               "payload": {"signal": "mechanism"}}])
         self.assertEqual(len(view), 2)
         self.assertNotIn("ghost.", str(view))
+        with self.assertRaises(PermissionError):
+            anchor.approve({"role": "ghost.mandela", "_label": "review"}, human_decision="approve")
         for item in view:
             self.assertNotIn("role", item)
             self.assertNotIn("component_hash", item)
