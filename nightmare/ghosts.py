@@ -19,8 +19,8 @@ class _Ghost:
     def _emit(self, run_id: str, signal: str, evidence: dict[str, Any], score: float) -> Output:
         out = Output(run_id=run_id, role=self.role, status="ok",
             payload={"signal": signal, "score": score, "evidence": evidence},
-            confidence=max(0.01, min(1.0, score)), model_id="python-observer",
-            component_hash=self.component_hash)
+            confidence=max(0.01, min(1.0, score)), model_id="python-observer", component_hash=self.component_hash,
+            component_kind="code")
         self._queue.append(out)
         return out
 
