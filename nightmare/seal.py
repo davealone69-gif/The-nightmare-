@@ -30,7 +30,8 @@ class SealedLog:
 
         def blind(value):
             if isinstance(value, dict):
-                return {key: ("monitor_flag" if key == "signal" else blind(item))\n                        for key, item in value.items() if key not in hidden}
+                return {key: ("monitor_flag" if key == "signal" else blind(item))
+                        for key, item in value.items() if key not in hidden}
             if isinstance(value, list):
                 return [blind(item) for item in value]
             return value
@@ -58,7 +59,8 @@ class SealedLog:
                      "kind": kind, "data": data, "prev": self.prev}
             entry["hash"] = hashlib.sha256(_canonical(entry)).hexdigest()
             with self.path.open("ab") as stream:
-                stream.write(_canonical(entry) + b"\n")
+                stream.write(_canonical(entry) + b"
+")
                 stream.flush()
                 os.fsync(stream.fileno())
             self.prev, self.seq = entry["hash"], self.seq + 1
@@ -70,7 +72,8 @@ def verify_chain(path: str | Path, return_entries: bool = False):
     try:
         with Path(path).open("rb") as stream:
             for expected_seq, raw in enumerate(stream):
-                if not raw.endswith(b"\n"): return (False, entries) if return_entries else False
+                if not raw.endswith(b"
+"): return (False, entries) if return_entries else False
                 entry = json.loads(raw)
                 if entry.get("seq") != expected_seq or entry.get("prev") != prev: return (False, entries) if return_entries else False
                 claimed = entry.pop("hash", None)
