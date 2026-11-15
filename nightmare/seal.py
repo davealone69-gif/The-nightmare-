@@ -25,8 +25,10 @@ class SealedLog:
         if not valid:
             raise ValueError("cannot export an anchor slice from an invalid sealed log")
 
-        hidden = {"role", "source_id", "observer_id", "ghost_id", "queue_id",
-                  "component_hash", "component_kind", "model_id", "ghost_role"}
+        hidden = {"role", "source_id", "source_role", "observer_id", "observer", "observer_name",
+                  "ghost_id", "ghost", "ghost_name", "queue_id", "component_hash",
+                  "source_component_hash", "component_kind", "model_id", "ghost_role",
+                  "actor", "artifact_path", "file_path"}
 
         def blind(value):
             if isinstance(value, dict):
