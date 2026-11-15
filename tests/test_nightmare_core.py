@@ -125,9 +125,17 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(trigger["system_paused"])
         with self.assertRaises(RuntimeError):
             anchor.approve(view[0], human_decision="defer")
-        with self.assertRaises(PermissionError):
-            anchor.resume_after_review(independent_review_recorded=False, owner_reauthorized=True)
-        anchor.resume_after_review(independent_review_recorded=True, owner_reauthorized=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            resume_log = SealedLog(Path(tmp) / "resume.jsonl")
+            with self.assertRaises(PermissionError):
+                anchor.resume_after_review(independent_reviewer_id="owner", owner_id="owner",
+                    review_evidence_ref="review-1", owner_authorization_ref="auth-1",
+                    sealed_log=resume_log)
+            record = anchor.resume_after_review(independent_reviewer_id="independent-reviewer",
+                owner_id="project-owner", review_evidence_ref="review-1",
+                owner_authorization_ref="auth-1", sealed_log=resume_log)
+            self.assertEqual(record["event"], "resume_after_independent_review")
+            self.assertTrue(verify_chain(resume_log.path))
         self.assertFalse(anchor.paused)
 
     def test_reset_uses_restarted_server_identity_endpoint(self):
