@@ -100,7 +100,7 @@ Build order is now Phase 0 through Phase 10 as defined in the v1 specification. 
 - Model, rubric, library, and build artifacts are versioned and identified by recorded content digests; a digest identifies checked bytes but does not enforce immutability.
 - Deployment fails closed when reset, audit, security, calibration, or provenance gates fail.
 
-Monitoring and human review are disclosed to the accountable operator. The design does not use hidden queues or disguise machine influence as randomness or independent human judgment.
+Monitoring is disclosed to the accountable human governance layer. Ghost identities and private source attribution are concealed from workers; the active anchor receives neutral labels in a merged queue. The sealed evidence chain preserves source records for authorised independent oversight. Ghosts never issue corrections, and no machine influence is represented as an independent human judgment.
 
 The broader design proposal remains limited to still-image quality review and excludes identity matching, biometric recognition, demographic or protected-trait inference, personal-photo evaluation, online learning, autonomous correction, and machine-issued certification. Do not describe this local harness as production-ready; applicable gates and human approvals in the full specification remain outstanding.
 
