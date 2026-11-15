@@ -44,7 +44,13 @@ def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None =
             elif p.is_file():
                 entries.append({"path": match, "type": "file", "sha256": hashlib.sha256(p.read_bytes()).hexdigest()})
             elif p.is_dir():
-                entries.append({"path": match, "type": "dir"})
+                digest = hashlib.sha256()
+                for child in sorted(p.rglob("*")):
+                    rel = str(child.relative_to(p))
+                    digest.update(rel.encode())
+                    if child.is_symlink(): digest.update(os.readlink(child).encode())
+                    elif child.is_file(): digest.update(hashlib.sha256(child.read_bytes()).digest())
+                entries.append({"path": match, "type": "dir", "sha256": digest.hexdigest()})
         result["paths"][name] = entries
     env_bytes = json.dumps(dict(sorted((env or {}).items())), sort_keys=True, separators=(",", ":")).encode()
     result["env_sha256"] = hashlib.sha256(env_bytes).hexdigest()
