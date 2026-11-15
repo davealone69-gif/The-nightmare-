@@ -11,8 +11,12 @@ class SealedLog:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        valid, entries = verify_chain(self.path, return_entries=True)
-        if not valid: raise ValueError("existing sealed log is invalid")
+        if self.path.exists():
+            valid, entries = verify_chain(self.path, return_entries=True)
+            if not valid:
+                raise ValueError("existing sealed log is invalid")
+        else:
+            entries = []
         self.prev = entries[-1]["hash"] if entries else "GENESIS"
         self.seq = len(entries)
         self._lock = threading.Lock()
