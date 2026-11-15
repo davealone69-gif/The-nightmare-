@@ -1,4 +1,6 @@
-# THE NIGHTMARE — Code-side implementation contract
+# THE NIGHTMARE — Historical code-side implementation contract (superseded)
+
+> **Superseded by:** [Implementation Specification v1.0](implementation-spec-v1.md). The v1.0 document is authoritative for current architecture, phases, policies and implementation status. This file is retained as the original owner-supplied code-side note and is not the current build order.
 
 **Status: SPECIFICATION COPIED; IMPLEMENTATION NOT YET VERIFIED.**  
 Schema version: 0.2  
