@@ -1,6 +1,6 @@
 """Visible human anchor: neutralized review queue and human-attributed decisions."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any
 import time
 
@@ -15,8 +15,12 @@ class Anchor:
 
     def merged_view(self, queue_a, queue_b) -> list[dict[str, Any]]:
         merged = []
-        for item in queue_a: merged.append({**item, "_label": "review"})
-        for item in queue_b: merged.append({**item, "_label": "second look"})
+        for item in queue_a:
+            row = asdict(item) if hasattr(item, "__dataclass_fields__") else dict(item)
+            merged.append({**row, "_label": "review"})
+        for item in queue_b:
+            row = asdict(item) if hasattr(item, "__dataclass_fields__") else dict(item)
+            merged.append({**row, "_label": "second look"})
         # Stable timestamp ordering; source identity is not included in the view.
         return sorted(merged, key=lambda x: x.get("ts", x.get("created_at", 0)))
 
