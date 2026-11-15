@@ -23,7 +23,7 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
         out = worker(task)
         errors = out.validate(approved_hashes)
         if errors: raise ValueError(f"contract violation for {out.role}: {errors}")
-        if out.weights_hash != weights_hash: raise PermissionError("worker model identity differs from pinned episode")
+        if out.component_kind != "model" or out.component_hash != weights_hash: raise PermissionError("worker model identity differs from pinned episode")
         if sorted(out.skill_capsules) != sorted(skills): raise PermissionError("worker skill capsule set differs from episode")
         sealed.append(out.role, "output", asdict(out))
         outputs.append(out)
