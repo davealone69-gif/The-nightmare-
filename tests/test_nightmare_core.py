@@ -90,6 +90,11 @@ class CoreTests(unittest.TestCase):
 
     def test_anchor_blindness_solo_recommitment_and_rubber_stamp_window(self):
         anchor = Anchor("anchor-1", 0, 9999999999)
+        self.assertTrue(anchor.monthly_recommitment_due(now=100))
+        self.assertTrue(anchor.paused)
+        anchor.solo_recommit(slice_reopened=True, slice_reread=True,
+                             stop_button_tested=True, human_confirmation=True, now=100)
+        self.assertFalse(anchor.paused)
         view = anchor.merged_view(
             [{"role": "ghost.mandela", "component_hash": CODE_HASH,
               "payload": {"signal": "meaning"}}],
