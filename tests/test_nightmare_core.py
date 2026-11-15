@@ -112,10 +112,15 @@ class CoreTests(unittest.TestCase):
         record = anchor.solo_recommit(slice_reopened=True, slice_reread=True,
                                       stop_button_tested=True, human_confirmation=True, now=100)
         self.assertEqual(record["kind"], "solo_monthly_recommitment")
+        self.assertTrue(anchor.paused, "a monthly re-commitment must not clear a separate safety pause")
         trigger = anchor.event_trigger("anchor_reports_unsafe")
         self.assertTrue(trigger["system_paused"])
         with self.assertRaises(RuntimeError):
             anchor.approve(view[0], human_decision="defer")
+        with self.assertRaises(PermissionError):
+            anchor.resume_after_review(independent_review_recorded=False, owner_reauthorized=True)
+        anchor.resume_after_review(independent_review_recorded=True, owner_reauthorized=True)
+        self.assertFalse(anchor.paused)
 
     def test_reset_uses_restarted_server_identity_endpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
