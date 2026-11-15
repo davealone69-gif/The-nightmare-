@@ -182,7 +182,7 @@ All code is standard-library-only. Platform-specific network isolation and model
 
 ### 10.1 Component contracts
 
-**Output** carries run ID, role, status, payload, confidence, reasons, abstain reason, model ID, weights hash, capsule hashes, seed and creation time. Validation rejects missing model pins, unapproved hashes, invalid confidence, missing payloads and invalid abstention/error reasons.
+**Output** carries run ID, role, status, payload, confidence, reasons, abstain reason, model ID, weights hash, component artifact hash, capsule hashes, seed and creation time. Model-backed workers/critics require an approved weights hash; deterministic Ghost code records its actual component source hash instead of falsely labelling a Python source hash as model weights. Validation rejects missing identity pins, unapproved model hashes, invalid confidence, missing payloads and invalid abstention/error reasons.
 
 **ResetPlan** supplies a frozen environment baseline, fixed seed, network block operation, independent blocked-state verifier, model-server restart operation and declared wipe targets. It returns a child-process environment instead of mutating the host process environment.
 
