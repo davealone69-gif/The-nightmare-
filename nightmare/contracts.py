@@ -33,7 +33,8 @@ class Output:
     seed: int = 0
     created_at: float = field(default_factory=time.time)
 
-    def validate(self, approved_components: set[str] | None = None,\n                 approved_code_components: set[str] | None = None) -> list[str]:
+    def validate(self, approved_components: set[str] | None = None,
+                 approved_code_components: set[str] | None = None) -> list[str]:
         errors: list[str] = []
         if not self.run_id.strip():
             errors.append("missing run_id")
@@ -66,9 +67,9 @@ class Output:
         if self.component_kind == "model" and approved_components is not None:
             if self.component_hash not in approved_components:
                 errors.append("component_hash is not an approved model artifact")
-        if self.component_kind == "code" and approved_components is not None:
-            # Code component hashes are pinned by the component manifest, not the model allowlist.
-            pass
+        if self.component_kind == "code" and approved_code_components is not None:
+            if self.component_hash not in approved_code_components:
+                errors.append("component_hash is not an approved code artifact")
 
         if any(not isinstance(x, str) or not x for x in self.skill_capsules):
             errors.append("skill_capsules must contain non-empty hashes")
