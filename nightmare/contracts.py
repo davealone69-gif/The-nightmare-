@@ -45,12 +45,12 @@ class Output:
         if (isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float))
                 or not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0):
             errors.append("confidence must be finite and between 0 and 1")
-        if self.status == "ok" and self.payload is None:
-            errors.append("ok requires payload")
-        if self.status == "abstain" and not self.abstain_reason:
-            errors.append("abstain requires abstain_reason")
-        if self.status == "error" and not self.reasons:
-            errors.append("error requires a reason")
+        if self.status == "ok" and not isinstance(self.payload, dict):
+            errors.append("ok requires an object payload")
+        if self.status == "abstain" and (not isinstance(self.abstain_reason, str) or not self.abstain_reason.strip()):
+            errors.append("abstain requires a non-empty abstain_reason")
+        if self.status == "error" and (not isinstance(self.reasons, list) or not self.reasons):
+            errors.append("error requires a non-empty reason list")
 
         if self.component_kind not in ("model", "code"):
             errors.append("component_kind must be model or code")
