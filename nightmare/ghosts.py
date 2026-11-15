@@ -15,7 +15,7 @@ def ghost_artifact_hash() -> str:
     entries = []
     for name in sorted(names):
         # Normalize line endings; hash bytes, never checkout paths, timestamps or filenames alone.
-        content = (root / name).read_text(encoding="utf-8").replace("\\r\\n", "\\n").replace("\\r", "\\n").encode("utf-8")
+        content = (root / name).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
         entries.append({"path": name, "sha256": hashlib.sha256(content).hexdigest()})
     manifest = json.dumps(entries, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(manifest).hexdigest()
