@@ -36,7 +36,7 @@ def _remove(path: Path) -> None:
 
 def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {"paths": {}, "env_sha256": ""}
-    for name, raw in sorted((targets or DEFAULT_TARGETS).items()):
+    for name, raw in sorted((targets if targets is not None else DEFAULT_TARGETS).items()):
         pattern = os.path.expanduser(raw)
         entries = []
         for match in sorted(glob.glob(pattern)):
@@ -61,7 +61,7 @@ def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None =
 def total_reset(plan: ResetPlan) -> dict[str, Any]:
     report: dict[str, Any] = {"wiped": [], "failed": [], "env_restored": False,
         "network_blocked": False, "model_server_restarted": False, "model_hash_verified": False, "seeds_fixed": False}
-    targets = plan.targets or DEFAULT_TARGETS
+    targets = plan.targets if plan.targets is not None else DEFAULT_TARGETS
     for name, raw in targets.items():
         try:
             for match in glob.glob(os.path.expanduser(raw)):
