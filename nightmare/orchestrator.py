@@ -13,6 +13,7 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
             ghosts: tuple[Any, Any], anchor: Anchor, sealed: SealedLog,
             reset_plan: ResetPlan, human_review: Callable[[dict[str, Any]], tuple[str, dict[str, Any] | None]]) -> dict[str, Any]:
     if weights_hash not in approved_hashes: raise PermissionError("unapproved model weights")
+    if reset_plan.expected_weights_hash != weights_hash: raise PermissionError("reset plan model hash does not match episode pin")
     reset = total_reset(reset_plan)
     sealed_reset = {k: v for k, v in reset.items() if k != "child_env"}
     sealed.append("system", "reset_report", sealed_reset)
