@@ -80,7 +80,12 @@ def total_reset(plan: ResetPlan) -> dict[str, Any]:
         report["failed"].append(f"network isolation: {exc}")
     try:
         report["model_server_restarted"] = bool(plan.restart_model_server())
-        # Query the identity endpoint served by the freshly restarted process. A disk hash is not evidence of loaded weights.\n        identity = plan.query_model_identity_endpoint() if report["model_server_restarted"] else {}\n        reported_hash = identity.get("weights_hash") or identity.get("artifact_hash")\n        report["model_identity"] = identity\n        report["model_hash_verified"] = (report["model_server_restarted"] and\n            bool(plan.expected_weights_hash) and reported_hash == plan.expected_weights_hash)
+        # Query the identity endpoint served by the freshly restarted process. A disk hash is not evidence of loaded weights.
+        identity = plan.query_model_identity_endpoint() if report["model_server_restarted"] else {}
+        reported_hash = identity.get("weights_hash") or identity.get("artifact_hash")
+        report["model_identity"] = identity
+        report["model_hash_verified"] = (report["model_server_restarted"] and
+            bool(plan.expected_weights_hash) and reported_hash == plan.expected_weights_hash)
     except Exception as exc:
         report["failed"].append(f"model server restart: {exc}")
     report["child_env"] = env
