@@ -95,14 +95,17 @@ class Anchor:
                   "decided_at": timestamp}
         self._decisions.append(record)
         self.last_recommitted_at = timestamp
-        if self.pause_reason in {None, "monthly solo re-commitment incomplete", "missed_monthly_recommitment"}:
+        if self.pause_reason in {None, "monthly solo re-commitment incomplete", "initial solo anchor commitment required"}:
             self.paused = False
             self.pause_reason = None
         return record
 
     def monthly_recommitment_due(self, now: float | None = None) -> bool:
         timestamp = time.time() if now is None else now
-        due = self.last_recommitted_at == 0.0 or timestamp - self.last_recommitted_at >= 30 * 24 * 60 * 60
+        if self.last_recommitted_at == 0.0:
+            self.pause("initial solo anchor commitment required")
+            return True
+        due = timestamp - self.last_recommitted_at >= 30 * 24 * 60 * 60
         if due:
             self.event_trigger("missed_monthly_recommitment")
         return due
