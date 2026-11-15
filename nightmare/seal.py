@@ -30,7 +30,7 @@ class SealedLog:
 
         def blind(value):
             if isinstance(value, dict):
-                return {key: blind(item) for key, item in value.items() if key not in hidden}
+                return {key: ("monitor_flag" if key == "signal" else blind(item))\n                        for key, item in value.items() if key not in hidden}
             if isinstance(value, list):
                 return [blind(item) for item in value]
             return value
