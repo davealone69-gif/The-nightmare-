@@ -33,6 +33,8 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
     for ghost in ghosts:
         event = ghost.observe(run_id, outputs) if ghost.role == "ghost.mandela" else ghost.observe(run_id, pair_result.get("trace", []))
         if event is not None:
+            errors = event.validate()
+            if errors: raise ValueError(f"ghost contract violation for {ghost.role}: {errors}")
             sealed.append(ghost.role, "observation", asdict(event))
             queues.append({"ts": event.created_at, "signal": event.payload, "run_id": run_id})
         else: queues.append(None)
@@ -45,6 +47,7 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
         result = anchor.approve(item, human_decision=decision, correction=correction)
         sealed.append(anchor.anchor_id, "human_decision", result)
         decisions.append(result)
+    sealed.append("anchor", "rubber_stamp_status", anchor.rubber_stamp_check())
     result = {"run_id": run_id, "outputs": [asdict(o) for o in outputs],
               "visible_pair": pair_result, "human_decisions": decisions,
               "anchor_status": anchor.rubber_stamp_check(), "reset_complete": True,
