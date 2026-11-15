@@ -10,7 +10,7 @@ Only the named human project owner may authorize ghost re-enablement. The author
 
 The current operating mode is **one human anchor**. There is no fictional overlap handover and no automatic replacement anchor. The sealed log is divided into bounded sequence-number slices. The anchor receives only a blinded projection of the assigned slice; raw provenance remains in the sealed evidence store for authorised independent oversight. A missing independent reviewer does not grant the anchor access to raw provenance.
 
-The solo anchor must re-commit at least every 30 calendar days by reopening the current slice, rereading it, testing the stop control and explicitly affirming responsibility. A missed deadline pauses new episodes.
+The solo anchor must re-commit at least every 30 calendar days by reopening the current slice, rereading it, testing the stop control and explicitly affirming responsibility. The re-commitment record is appended to the sealed log before the due timestamp is advanced. A missed deadline pauses new episodes.
 
 ## 3. Rubber-stamp trigger
 
@@ -42,7 +42,7 @@ The production target is a private, encrypted local data volume under the config
 
 ## 10. “This feels wrong” escalation
 
-The anchor's stop action or recorded “this feels wrong” statement immediately: (1) pauses episode admission and all automated corrections; (2) freezes affected outputs and capsule promotions; (3) seals the trigger, current bounded slice and relevant raw evidence; (4) preserves both ghost findings without choosing a winner; (5) requests independent human review. The system remains paused until the independent reviewer records a finding and the project owner explicitly re-authorizes. If no reviewer is available, the pause remains in force. No model or ghost may overrule this stop.
+The anchor's stop action or recorded “this feels wrong” statement immediately: (1) pauses episode admission and all automated corrections; (2) freezes affected outputs and capsule promotions; (3) seals the trigger, current bounded slice and relevant raw evidence; (4) preserves both ghost findings without choosing a winner; (5) requests independent human review. The system remains paused until a reviewer whose configured human identity is distinct from the project owner records a finding, and the project owner explicitly re-authorizes with evidence references. The resume record is appended to the sealed log before the pause is cleared. If no reviewer is available, the pause remains in force. No model or ghost may overrule this stop.
 
 ## 11. THE WORLD deferral boundary
 
