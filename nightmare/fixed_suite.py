@@ -22,7 +22,7 @@ def _stable_output(out: Output) -> dict[str, Any]:
     return {"run_id": out.run_id, "role": out.role, "status": out.status,
         "payload": out.payload, "confidence": out.confidence, "reasons": out.reasons,
         "abstain_reason": out.abstain_reason, "model_id": out.model_id,
-        "weights_hash": out.weights_hash, "component_hash": out.component_hash, "skill_capsules": out.skill_capsules,
+        "component_hash": out.component_hash, "component_kind": out.component_kind, "skill_capsules": out.skill_capsules,
         "seed": out.seed}
 
 def run_contract_suite(adapter: Callable[[dict[str, Any], int], Output],
@@ -31,7 +31,9 @@ def run_contract_suite(adapter: Callable[[dict[str, Any], int], Output],
     normalized = []
     for item in FIXED_PROMPTS:
         out = adapter(item, seed)
-        errors = out.validate({weights_hash})
+        errors = out.validate(approved_components={weights_hash})
+        if out.component_kind != "model" or out.component_hash != weights_hash:
+            errors = [*errors, "worker model identity differs from fixed-suite pin"]
         passed = not errors
         if "expected_status" in item:
             passed = passed and out.status == item["expected_status"]
@@ -48,9 +50,12 @@ def run_contract_suite(adapter: Callable[[dict[str, Any], int], Output],
         normalized.append(stable)
         results.append({"id": item["id"], "tier": item["tier"], "passed": passed,
                         "errors": errors, "normalized_output": stable})
+    certification = all(r["passed"] for r in results if r["tier"] in {"A", "B"})
+    diagnostics = all(r["passed"] for r in results)
     return {"seed": seed, "manifest": {"suite_ids": [p["id"] for p in FIXED_PROMPTS],
             "weights_hash": weights_hash}, "outputs": normalized,
-            "results": results, "passed": all(r["passed"] for r in results)}
+            "results": results, "certification_passed": certification,
+            "diagnostics_passed": diagnostics, "passed": certification}
 
 def run_state_equality(adapter: Callable[[dict[str, Any], int], Output],
                        weights_hash: str, seed: int,

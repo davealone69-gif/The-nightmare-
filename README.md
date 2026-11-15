@@ -2,9 +2,23 @@
 
 > **Governing rule:** “The ghosts are invisible so the human can be visible.”
 
-A supervised multi-agent system with stateless workers, two training-time observers, a frozen visible critic pair, a read-only knowledge library, cryptographically pinned model/skill identities, a sealed evidence chain, and one visible rotating human anchor. The human is the only correction authority. Ghosts observe and curate evidence; they never correct. THE WORLD is explicitly deferred.
+A supervised multi-agent system with stateless workers, two training-time observers, a frozen visible critic pair, a read-only knowledge library, cryptographically pinned model/skill identities, a sealed evidence chain, and one visible human anchor. The human is the only correction authority. Ghosts observe and curate evidence; they never correct. THE WORLD is explicitly deferred.
 
-**Current architecture authority:** [Implementation Specification v1.0](docs/implementation-spec-v1.md). This supersedes the earlier seven-step code-side note and is the complete NIGHTMARE architecture handover. **Python reference package:** [`nightmare/`](nightmare/__init__.py). **Core tests:** [`tests/test_nightmare_core.py`](tests/test_nightmare_core.py).
+**Current architecture authority:** [Implementation Specification v1.0](docs/implementation-spec-v1.md). **Current contract:** [Output Contract v0.3](docs/output-contract-v0.3.md). **Phase 0 operating defaults:** [Policy v0.1](docs/phase0-operating-policy-v0.1.md). This supersedes the earlier seven-step code-side note and is the complete NIGHTMARE architecture handover. **Python reference package:** [`nightmare/`](nightmare/__init__.py). **Core tests:** [`tests/test_nightmare_core.py`](tests/test_nightmare_core.py).
+
+## Current branch handover — 2026-11-15
+
+**Active branch:** `fix/nightmare-contract-v0.3`. The v0.3 schema, dependent reference code, solo-anchor protocol, Phase 0 policy and README/spec reconciliation are being kept together on this branch. `main` is untouched.
+
+- Output identity is split into `component_hash` plus `component_kind=model|code`; model and ghost code hashes use separate allowlists.
+- Ghost source identity is a canonical content manifest over sorted relative source paths and normalized file bytes; no absolute paths or timestamps enter the digest.
+- Skill bodies are recursively frozen with read-only mappings and tuples. The capsule hash is computed at construction and `validate()` recomputes it.
+- Reset verifies the model hash returned by the freshly restarted server's identity endpoint, not a file hash.
+- Anchor views and bounded log projections remove ghost identity and component provenance. Solo mode uses a 30-day re-commitment and a 20-decision rubber-stamp window; event triggers pause rather than pretending a replacement anchor exists.
+- Phase 0 defaults are documented. The encrypted sealed-log store, named independent reviewer, owner identity, and tested stop path are still deployment blockers.
+- THE WORLD is defined as a separate persistent simulated-world experiment with ghost-observed and clean comparison variants. It remains deferred until NIGHTMARE Phases 0–8 pass and separate authorization is given.
+
+**Verification:** GitHub file/commit presence is verified. A Python 3.12 unittest workflow is committed, but no workflow run or status result is currently available; test execution therefore remains **UNVERIFIED**. Runtime integration is also **UNVERIFIED**. The code remains a reference scaffold; do not describe it as production-ready. See the Phase 0 policy for unresolved operational configuration blockers.
 
 ## Complete system summary
 
@@ -12,7 +26,7 @@ A supervised multi-agent system with stateless workers, two training-time observ
 - **Human Anchor / Nail:** the sole active non-mechanical authority. Named, visible, logged, empowered to stop the system, limited to a sealed-log slice, and rotated. Cannot authorize their own continuation.
 - **Mandela:** training-time meaning observer. Detects consensus drift, unsupported shared narratives, false agreement and source mismatch.
 - **Matrix:** training-time mechanism observer. Detects trace anomalies, tool/message ordering issues, cache reuse, sandbox probes and log manipulation.
-- **Ghost boundaries:** independent private queues; no direct ghost-to-ghost channel; no worker-facing correction path. The anchor sees a merged queue labelled only review and second look. Ghosts are retired before deployment.
+- **Ghost boundaries:** independent private queues; no direct ghost-to-ghost channel; no worker-facing correction path. The anchor sees a blinded merged queue with randomly assigned review/second-look labels and a redacted bounded log projection; raw ghost provenance is not exposed. Ghosts are retired before deployment.
 - **Good Cop / Bad Cop:** visible, frozen critics deployed after validated ghost findings are distilled into them. They judge and report, never correct.
 - **Workers:** 3–5 stateless specialists per episode. Every output uses the common contract, pins model weights and skill hashes, and supports abstention.
 - **Knowledge library:** source-tagged, versioned, hash-pinned and read-only at inference. Only a human may ingest or change it.
@@ -20,9 +34,9 @@ A supervised multi-agent system with stateless workers, two training-time observ
 ### Core invariants
 1. **Human-origin corrections only.** Ghosts curate evidence; only the named anchor can issue a correction.
 2. **Groundhog Day.** Each episode starts from a fixed prompt set, seed, model artifact, approved skill set and library snapshot. Transient state is reset; failures are recorded, not learned online.
-3. **Reset gate.** Enumerate caches, transient tool logs, temp/scratch state, SQLite WAL/SHM, RNG and environment; block and verify network; restart the model server and verify the loaded weights hash; compare two same-seed manifests and normalized outputs. A mismatch halts deployment.
+3. **Reset gate.** Enumerate caches, transient tool logs, temp/scratch state, SQLite WAL/SHM, RNG and environment; block and verify network; restart the model server, query its live identity endpoint and compare the reported loaded weights hash; compare two same-seed manifests and normalized outputs. A mismatch halts deployment.
 4. **Fixed model identity.** A model name is not a pin. The actual weights hash must match the approved list on every output and after model-server restart.
-5. **External skill evolution.** Immutable, parent-linked skill capsules evolve separately from model weights. Promotion requires a fixed-suite comparison and explicit human approval. No automatic promotion.
+5. **External skill evolution.** Recursively frozen, parent-linked skill capsules store their canonical hash at construction and revalidate it separately from model weights. Promotion requires a fixed-suite comparison and explicit human approval. No automatic promotion.
 6. **Sealed evidence.** Every event is appended to a canonical JSON hash chain. Ghosts append observations; they cannot rewrite prior evidence.
 7. **Quarantine, not auto-remediation.** Collusion, evaluation resistance, repair cover-up, reset leakage, anchor anomalies or queue contradictions freeze affected outputs and escalate to the human.
 8. **Accepted mutual-watch gap.** Ghosts cannot directly communicate. Human-mediated mutual watch is slow and lossy; it does not reliably detect fast coordinated ghost failure. The visible anchor and independent audit remain the backstop.
@@ -39,7 +53,7 @@ Each phase is closed only when its own tests pass. Phase 9 wiring is blocked unt
 ### Policies
 - **Impossible tasks:** Tier A production prompts must pass; Tier B edge cases must degrade gracefully; Tier C impossible prompts are diagnostics/repair training only and never a certification gate.
 - **Safe failure:** abstention, escalation and "can't do this reliably" are rewarded; crashes, silent failure and fabricated success are penalized.
-- **Anchor rotation:** scheduled rotation, bounded slices, observed overlap handover, no self-extension, and early rotation on sustained approval rate above 0.9.
+- **Solo anchor:** one human anchor, blinded bounded slices, 30-day re-commitment, and a strict >0.90 approval rate over the latest 20 completed decisions. Safety triggers pause the system; no nonexistent replacement anchor or overlap handover is assumed.
 
 ### Failure register
 - **F1** rubber-stamping → early rotation and spot-audit.
@@ -54,10 +68,10 @@ Each phase is closed only when its own tests pass. Phase 9 wiring is blocked unt
 - **F10** skill capsule drift → reject promotion without test comparison and human approval.
 
 ### Explicitly deferred
-THE WORLD and its separate world/ghost experiment are not part of this project phase. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
+THE WORLD is the separate persistent simulated-world experiment with ghost-observed and clean comparison variants. It remains deferred until NIGHTMARE Phases 0–8 pass, its owner-approved handover is complete, and a separate scope/branch is explicitly authorized. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
 
-### Open Phase 0 decisions
-Ghost re-enablement authority; anchor count and slice allocation; retrain cadence; acceptable multi-agent latency/cost; first production domain; meaning of "not certified"; sealed-log storage and access; escalation when the anchor says "this feels wrong." These require explicit owner policy decisions and are not silently defaulted.
+### Phase 0 operating policy
+Conservative defaults for all eight decisions are recorded in [Phase 0 Operating Policy v0.1](docs/phase0-operating-policy-v0.1.md). Operational blockers remain: named owner identity, independent reviewer, encrypted sealed-log storage/access controls, and a tested stop/pause path. Do not claim Phase 0 complete until those are configured and tested.
 
 A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
@@ -140,7 +154,7 @@ The local worker-phase numbering follows the original repository build brief. It
 
 The authoritative complete architecture, threat model, component interfaces, correction lifecycle, Groundhog Day reset, fixed-weight skill evolution, sealed log, anti-collusion monitoring, mutual-watch limitation, grading engine, ten-prompt suite, Phases 0–10, policies, refusal boundary and F1–F10 failure register are in [docs/implementation-spec-v1.md](docs/implementation-spec-v1.md). It supersedes [the earlier code-side implementation note](docs/code-side-implementation-contract-v0.2.md), which remains preserved as historical source material.
 
-The following Python reference modules have been added on this branch: `contracts.py`, `reset.py`, `seal.py`, `skills.py`, `ghosts.py`, `anchor.py`, `orchestrator.py` and `fixed_suite.py`. A core unittest file is present at `tests/test_nightmare_core.py`. These are an initial integration scaffold, not a verified production implementation. Platform-specific network isolation and model-server restart must be supplied and independently verified by the runtime adapter. The still-image grading engine, calibrated critic, full rotation protocol, production worker/model adapters, deployment gates and end-to-end runtime proof remain outstanding. **No test execution or installed-phone runtime evidence has been collected in this documentation update; code status is UNVERIFIED until the suite is actually run.**
+The Python reference package on this branch now uses Output contract schema v0.3: every output carries `component_hash` and `component_kind` (`model` or `code`); model outputs are checked against the approved model hash set, while ghost outputs must identify as code. The earlier ambiguous `weights_hash` field has been removed from the Output envelope. See [the v0.3 contract note](docs/output-contract-v0.3.md) and the component contract in the [v1.0 specification](docs/implementation-spec-v1.md). The following Python reference modules are present on this branch: `contracts.py`, `reset.py`, `seal.py`, `skills.py`, `ghosts.py`, `anchor.py`, `orchestrator.py` and `fixed_suite.py`. A core unittest file is present at `tests/test_nightmare_core.py`. These are an initial integration scaffold, not a verified production implementation. Platform-specific network isolation and model-server restart must be supplied and independently verified by the runtime adapter. The still-image grading engine, calibrated critic, full rotation protocol, production worker/model adapters, deployment gates and end-to-end runtime proof remain outstanding. **The v0.3 schema and dependent call sites have been committed to the dedicated `fix/nightmare-contract-v0.3` branch. Test execution and installed-phone runtime evidence have not yet been collected; code status remains UNVERIFIED until the suite is actually run.**
 
 Build order is now Phase 0 through Phase 10 as defined in the v1 specification. Work one phase at a time. Phase 1 is the first code gate; do not begin the later phases until its contract and ten-prompt tests pass. The World/ghost-world experiment remains deferred and must not be started as part of this NIGHTMARE work.
 

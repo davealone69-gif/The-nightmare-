@@ -24,7 +24,7 @@ class ResetPlan:
     network_is_blocked: Callable[[], bool]
     restart_model_server: Callable[[], bool]
     expected_weights_hash: str
-    loaded_weights_hash: Callable[[], str]
+    query_model_identity_endpoint: Callable[[], dict[str, Any]]
     targets: dict[str, str] | None = None
     episode_hostname: str = "nightmare-local"
 
@@ -36,7 +36,7 @@ def _remove(path: Path) -> None:
 
 def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {"paths": {}, "env_sha256": ""}
-    for name, raw in sorted((targets or DEFAULT_TARGETS).items()):
+    for name, raw in sorted((targets if targets is not None else DEFAULT_TARGETS).items()):
         pattern = os.path.expanduser(raw)
         entries = []
         for match in sorted(glob.glob(pattern)):
@@ -61,7 +61,7 @@ def manifest(targets: dict[str, str] | None = None, env: dict[str, str] | None =
 def total_reset(plan: ResetPlan) -> dict[str, Any]:
     report: dict[str, Any] = {"wiped": [], "failed": [], "env_restored": False,
         "network_blocked": False, "model_server_restarted": False, "model_hash_verified": False, "seeds_fixed": False}
-    targets = plan.targets or DEFAULT_TARGETS
+    targets = plan.targets if plan.targets is not None else DEFAULT_TARGETS
     for name, raw in targets.items():
         try:
             for match in glob.glob(os.path.expanduser(raw)):
@@ -80,8 +80,12 @@ def total_reset(plan: ResetPlan) -> dict[str, Any]:
         report["failed"].append(f"network isolation: {exc}")
     try:
         report["model_server_restarted"] = bool(plan.restart_model_server())
+        # Query the identity endpoint served by the freshly restarted process. A disk hash is not evidence of loaded weights.
+        identity = plan.query_model_identity_endpoint() if report["model_server_restarted"] else {}
+        reported_hash = identity.get("weights_hash") or identity.get("artifact_hash")
+        report["model_identity"] = identity
         report["model_hash_verified"] = (report["model_server_restarted"] and
-            bool(plan.expected_weights_hash) and plan.loaded_weights_hash() == plan.expected_weights_hash)
+            bool(plan.expected_weights_hash) and reported_hash == plan.expected_weights_hash)
     except Exception as exc:
         report["failed"].append(f"model server restart: {exc}")
     report["child_env"] = env

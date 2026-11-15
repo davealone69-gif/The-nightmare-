@@ -4,12 +4,26 @@ from collections import deque
 from typing import Any
 from pathlib import Path
 import hashlib
+import json
 from .contracts import Output
+
+
+def ghost_artifact_hash() -> str:
+    """Hash a canonical relative-path manifest of ghost code and its output contract."""
+    root = Path(__file__).resolve().parent
+    names = ("contracts.py", "ghosts.py")
+    entries = []
+    for name in sorted(names):
+        # Normalize line endings; hash bytes, never checkout paths, timestamps or filenames alone.
+        content = (root / name).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        entries.append({"path": name, "sha256": hashlib.sha256(content).hexdigest()})
+    manifest = json.dumps(entries, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(manifest).hexdigest()
 
 class _Ghost:
     role = "ghost.base"
     def __init__(self, queue_size: int = 1000):
-        self.component_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        self.component_hash = ghost_artifact_hash()
         self._queue = deque(maxlen=queue_size)
 
     @property
@@ -19,8 +33,8 @@ class _Ghost:
     def _emit(self, run_id: str, signal: str, evidence: dict[str, Any], score: float) -> Output:
         out = Output(run_id=run_id, role=self.role, status="ok",
             payload={"signal": signal, "score": score, "evidence": evidence},
-            confidence=max(0.01, min(1.0, score)), model_id="python-observer",
-            component_hash=self.component_hash)
+            confidence=max(0.01, min(1.0, score)), model_id="python-observer", component_hash=self.component_hash,
+            component_kind="code")
         self._queue.append(out)
         return out
 
