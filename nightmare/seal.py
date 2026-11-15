@@ -17,6 +17,40 @@ class SealedLog:
         self.seq = len(entries)
         self._lock = threading.Lock()
 
+    def anchor_slice(self, start_seq: int, end_seq: int) -> dict[str, Any]:
+        """Return a blinded, bounded projection; never expose raw ghost provenance to the anchor."""
+        if start_seq < 0 or end_seq < start_seq:
+            raise ValueError("invalid anchor slice bounds")
+        valid, entries = verify_chain(self.path, return_entries=True)
+        if not valid:
+            raise ValueError("cannot export an anchor slice from an invalid sealed log")
+
+        hidden = {"role", "source_id", "observer_id", "ghost_id", "queue_id",
+                  "component_hash", "component_kind", "model_id", "ghost_role"}
+
+        def blind(value):
+            if isinstance(value, dict):
+                return {key: blind(item) for key, item in value.items() if key not in hidden}
+            if isinstance(value, list):
+                return [blind(item) for item in value]
+            return value
+
+        selected = []
+        for entry in entries:
+            if not start_seq <= entry["seq"] < end_seq:
+                continue
+            is_ghost = str(entry.get("actor", "")).startswith("ghost.")
+            selected.append({
+                "seq": entry["seq"],
+                "ts": entry["ts"],
+                "actor": "monitor" if is_ghost else entry["actor"],
+                "kind": "observation" if is_ghost else entry["kind"],
+                "data": blind(entry["data"]),
+            })
+        projection = {"start_seq": start_seq, "end_seq": end_seq, "entries": selected}
+        projection["projection_sha256"] = hashlib.sha256(_canonical(projection)).hexdigest()
+        return projection
+
     def append(self, actor: str, kind: str, data: dict[str, Any]) -> dict[str, Any]:
         if not actor or not kind: raise ValueError("actor and kind are required")
         with self._lock:
