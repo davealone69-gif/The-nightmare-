@@ -6,6 +6,22 @@ from typing import Literal, Any
 import hashlib, json, os
 
 SkillKind = Literal["prompt", "tool_policy", "routing_rule", "retrieval_policy"]
+
+class FrozenDict(dict):
+    """JSON-serializable dict that rejects mutation, including nested capsule mappings."""
+    def _immutable(self, *args, **kwargs):
+        raise TypeError("skill capsule bodies are immutable")
+    __setitem__ = __delitem__ = clear = pop = popitem = setdefault = update = _immutable
+
+def _freeze(value):
+    if isinstance(value, dict):
+        return FrozenDict({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze(item) for item in value)
+    return value
+
 def canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
 
@@ -16,6 +32,13 @@ class SkillCapsule:
     kind: SkillKind
     body: dict[str, Any]
     parent: str | None = None
+
+    def __post_init__(self):
+        if self.kind not in {"prompt", "tool_policy", "routing_rule", "retrieval_policy"}:
+            raise ValueError("invalid skill capsule kind")
+        if self.version < 1 or not self.name:
+            raise ValueError("invalid skill capsule identity")
+        object.__setattr__(self, "body", _freeze(self.body))
 
     @property
     def hash(self) -> str:
