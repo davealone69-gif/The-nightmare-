@@ -169,7 +169,7 @@ The branch contains a standard-library Python package under `nightmare/`:
 
 | Module | Interface |
 |---|---|
-| `contracts.py` | `Output.validate()`, `Output.digest()`, canonical JSON |
+| `contracts.py` | Output contract v0.3: explicit `component_hash` + `component_kind`; `Output.validate()`, `Output.digest()`, canonical JSON |
 | `reset.py` | `ResetPlan`, `total_reset()`, `manifest()`, `state_equality_audit()` |
 | `seal.py` | `SealedLog.append()`, `verify_chain()` |
 | `skills.py` | `SkillCapsule`, `SkillLibrary.add/load/evolve/approve()`, `identity()` |
@@ -180,9 +180,9 @@ The branch contains a standard-library Python package under `nightmare/`:
 
 All code is standard-library-only. Platform-specific network isolation and model-server restart are explicit injected operations rather than falsely claimed portable implementations. The reference package is an integration scaffold, not evidence that production worker adapters, a calibrated image grader, Android packaging or phone runtime are complete.
 
-### 10.1 Component contracts
+### 10.1 Component contracts (Output schema v0.3)
 
-**Output** carries run ID, role, status, payload, confidence, reasons, abstain reason, model ID, weights hash, component artifact hash, capsule hashes, seed and creation time. Model-backed workers/critics require an approved weights hash; deterministic Ghost code records its actual component source hash instead of falsely labelling a Python source hash as model weights. Validation rejects missing identity pins, unapproved model hashes, invalid confidence, missing payloads and invalid abstention/error reasons.
+**Output contract v0.3** carries run ID, role, status, payload, confidence, reasons, abstain reason, model ID, `component_hash`, `component_kind`, capsule hashes, seed and creation time. `component_kind` is exactly `model` or `code`. Model-backed workers/critics use `component_kind=model`; `component_hash` is their approved weights/artifact SHA-256 and is checked against the approved model set. Ghost observers use `component_kind=code`; `component_hash` is the SHA-256 of their reproducible code artifact, never a model-weights field. Ghost roles are rejected unless their kind is `code`, and non-ghost roles are rejected unless their kind is `model`. All component hashes must be lowercase 64-character SHA-256 hex digests. The old ambiguous `weights_hash` field is removed from `Output`; reset-plan model pinning remains a separate `expected_weights_hash` contract.
 
 **ResetPlan** supplies a frozen environment baseline, fixed seed, network block operation, independent blocked-state verifier, model-server restart operation and declared wipe targets. It returns a child-process environment instead of mutating the host process environment.
 
