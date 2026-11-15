@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
+import copy
 import secrets
 import time
 
@@ -9,6 +10,16 @@ IDENTITY_FIELDS = {
     "role", "source_id", "observer_id", "ghost_id", "queue_id",
     "component_hash", "component_kind", "model_id", "actor",
 }
+def _blind(value):
+    if isinstance(value, dict):
+        return {key: _blind(item) for key, item in value.items() if key not in IDENTITY_FIELDS}
+    if isinstance(value, list):
+        return [_blind(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_blind(item) for item in value)
+    return value
+
+
 ROTATION_EVENTS = {
     "rubber_stamp_threshold", "failed_spot_audit", "queue_contradiction",
     "sealed_log_integrity_failure", "unauthorized_log_access",
@@ -32,16 +43,8 @@ class Anchor:
         """Merge both private queues without preserving a source-to-label mapping."""
         merged = []
         for item in (*tuple(queue_a), *tuple(queue_b)):
-            row = dict(item) if isinstance(item, dict) else {
-                key: value for key, value in vars(item).items()
-            }
-            for key in IDENTITY_FIELDS:
-                row.pop(key, None)
-            # Never let nested metadata reintroduce observer identity.
-            payload = row.get("payload")
-            if isinstance(payload, dict):
-                for key in IDENTITY_FIELDS:
-                    payload.pop(key, None)
+            row = copy.deepcopy(item) if isinstance(item, dict) else copy.deepcopy(vars(item))
+            row = _blind(row)
             row["_label"] = secrets.choice(("review", "second look"))
             merged.append(row)
         return sorted(merged, key=lambda x: x.get("ts", x.get("created_at", 0)))
