@@ -116,7 +116,7 @@ class CoreTests(unittest.TestCase):
             self.assertNotIn("component_hash", item)
             self.assertIn(item["_label"], {"review", "second look"})
         for i in range(19):
-            anchor.approve(view[0], human_decision="approve")
+            anchor.approve(view[0], human_decision="approve", rationale="Reviewed evidence supports approval")
         anchor.approve(view[1], human_decision="reject", rationale="Conflicting evidence requires rejection")
         status = anchor.rubber_stamp_check()
         self.assertTrue(status["rotate_early"])
