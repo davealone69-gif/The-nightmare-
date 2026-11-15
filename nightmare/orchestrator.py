@@ -8,7 +8,8 @@ from .seal import SealedLog, verify_chain
 from .anchor import Anchor
 
 def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_hashes: set[str],
-            skills: list[str], approved_ghost_hashes: set[str],\n            workers: list[Callable[[dict[str, Any]], Output]],
+            skills: list[str], approved_ghost_hashes: set[str],
+            workers: list[Callable[[dict[str, Any]], Output]],
             visible_pair: Callable[[list[Output]], dict[str, Any]],
             ghosts: tuple[Any, Any], anchor: Anchor, sealed: SealedLog,
             reset_plan: ResetPlan, human_review: Callable[[dict[str, Any]], tuple[str, dict[str, Any] | None]]) -> dict[str, Any]:
