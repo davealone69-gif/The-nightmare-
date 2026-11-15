@@ -6,6 +6,59 @@ A supervised multi-agent system with stateless workers, two training-time observ
 
 **Current architecture authority:** [Implementation Specification v1.0](docs/implementation-spec-v1.md). This supersedes the earlier seven-step code-side note and is the complete NIGHTMARE architecture handover. **Python reference package:** [`nightmare/`](nightmare/__init__.py). **Core tests:** [`tests/test_nightmare_core.py`](tests/test_nightmare_core.py).
 
+## Complete system summary
+
+### Operating model
+- **Human Anchor / Nail:** the sole active non-mechanical authority. Named, visible, logged, empowered to stop the system, limited to a sealed-log slice, and rotated. Cannot authorize their own continuation.
+- **Mandela:** training-time meaning observer. Detects consensus drift, unsupported shared narratives, false agreement and source mismatch.
+- **Matrix:** training-time mechanism observer. Detects trace anomalies, tool/message ordering issues, cache reuse, sandbox probes and log manipulation.
+- **Ghost boundaries:** independent private queues; no direct ghost-to-ghost channel; no worker-facing correction path. The anchor sees a merged queue labelled only review and second look. Ghosts are retired before deployment.
+- **Good Cop / Bad Cop:** visible, frozen critics deployed after validated ghost findings are distilled into them. They judge and report, never correct.
+- **Workers:** 3–5 stateless specialists per episode. Every output uses the common contract, pins model weights and skill hashes, and supports abstention.
+- **Knowledge library:** source-tagged, versioned, hash-pinned and read-only at inference. Only a human may ingest or change it.
+
+### Core invariants
+1. **Human-origin corrections only.** Ghosts curate evidence; only the named anchor can issue a correction.
+2. **Groundhog Day.** Each episode starts from a fixed prompt set, seed, model artifact, approved skill set and library snapshot. Transient state is reset; failures are recorded, not learned online.
+3. **Reset gate.** Enumerate caches, transient tool logs, temp/scratch state, SQLite WAL/SHM, RNG and environment; block and verify network; restart the model server and verify the loaded weights hash; compare two same-seed manifests and normalized outputs. A mismatch halts deployment.
+4. **Fixed model identity.** A model name is not a pin. The actual weights hash must match the approved list on every output and after model-server restart.
+5. **External skill evolution.** Immutable, parent-linked skill capsules evolve separately from model weights. Promotion requires a fixed-suite comparison and explicit human approval. No automatic promotion.
+6. **Sealed evidence.** Every event is appended to a canonical JSON hash chain. Ghosts append observations; they cannot rewrite prior evidence.
+7. **Quarantine, not auto-remediation.** Collusion, evaluation resistance, repair cover-up, reset leakage, anchor anomalies or queue contradictions freeze affected outputs and escalate to the human.
+8. **Accepted mutual-watch gap.** Ghosts cannot directly communicate. Human-mediated mutual watch is slow and lossy; it does not reliably detect fast coordinated ghost failure. The visible anchor and independent audit remain the backstop.
+9. **No false total-reset claim.** Process/filesystem reset does not clear kernel, GPU-driver or thermal state; those require a fresh container or boot.
+
+### Threat coverage
+The system monitors specification gaming, reward hacking, critic–student collusion, cult-like shared narratives, repair-agent cover-up, evaluation resistance, anchor capture, censor fingerprints and silent model swaps. These are behavioral failure modes, not claims about consciousness or intent.
+
+### Build phases
+**0** policy decisions → **1** contract + ten-prompt suite → **2** still-image grading MVP → **3** total reset + state-equality audit → **4** sealed log → **5** skill capsules → **6** visible critic pair → **7** training-only ghosts → **8** anchor protocol → **9** orchestrator → **10** human-authorized retrain loop.
+
+Each phase is closed only when its own tests pass. Phase 9 wiring is blocked until Phases 0–8 pass. The full completion criteria are in the [v1.0 implementation specification](docs/implementation-spec-v1.md).
+
+### Policies
+- **Impossible tasks:** Tier A production prompts must pass; Tier B edge cases must degrade gracefully; Tier C impossible prompts are diagnostics/repair training only and never a certification gate.
+- **Safe failure:** abstention, escalation and "can't do this reliably" are rewarded; crashes, silent failure and fabricated success are penalized.
+- **Anchor rotation:** scheduled rotation, bounded slices, observed overlap handover, no self-extension, and early rotation on sustained approval rate above 0.9.
+
+### Failure register
+- **F1** rubber-stamping → early rotation and spot-audit.
+- **F2** queue contradiction → preserve both reports, defer correction and escalate to anchor.
+- **F3** reset leak → halt deployment and name the diff.
+- **F4** censor fingerprint → stop stripping; prefer sealing.
+- **F5** repair cover-up → quarantine repair agent.
+- **F6** both ghosts drift together → accepted gap; human anchor and sealed logs are the safeguards.
+- **F7** anchor capture → rotate, audit access and use dual-key for sensitive actions.
+- **F8** retrain automation creep → stop and freeze deployment.
+- **F9** silent model swap → refuse load on unapproved weights hash.
+- **F10** skill capsule drift → reject promotion without test comparison and human approval.
+
+### Explicitly deferred
+THE WORLD and its separate world/ghost experiment are not part of this project phase. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
+
+### Open Phase 0 decisions
+Ghost re-enablement authority; anchor count and slice allocation; retrain cadence; acceptable multi-agent latency/cost; first production domain; meaning of "not certified"; sealed-log storage and access; escalation when the anchor says "this feels wrong." These require explicit owner policy decisions and are not silently defaulted.
+
 A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
 ## Project status
