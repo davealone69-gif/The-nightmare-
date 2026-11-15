@@ -184,7 +184,7 @@ All code is standard-library-only. Platform-specific network isolation and model
 
 **Output contract v0.3** carries run ID, role, status, payload, confidence, reasons, abstain reason, model ID, `component_hash`, `component_kind`, capsule hashes, seed and creation time. `component_kind` is exactly `model` or `code`. Model-backed workers/critics use `component_kind=model`; `component_hash` is their approved weights/artifact SHA-256 and is checked against the approved model set. Ghost observers use `component_kind=code`; `component_hash` is the SHA-256 of their reproducible code artifact, never a model-weights field. Ghost roles are rejected unless their kind is `code`, and non-ghost roles are rejected unless their kind is `model`. All component hashes must be lowercase 64-character SHA-256 hex digests. The old ambiguous `weights_hash` field is removed from `Output`; reset-plan model pinning remains a separate `expected_weights_hash` contract.
 
-**ResetPlan** supplies a frozen environment baseline, fixed seed, network block operation, independent blocked-state verifier, model-server restart operation and declared wipe targets. It returns a child-process environment instead of mutating the host process environment.
+**ResetPlan** supplies a frozen environment baseline, fixed seed, network block operation, independent blocked-state verifier, model-server restart operation, a callback that queries the restarted server's live identity endpoint, expected model hash and declared wipe targets. The live endpoint response must report the loaded weights/artifact hash; a disk-file hash is not accepted. It returns a child-process environment instead of mutating the host process environment.
 
 **SealedLog** verifies an existing chain before appending, fsyncs each record, and refuses to append to an invalid chain.
 
@@ -192,7 +192,7 @@ All code is standard-library-only. Platform-specific network isolation and model
 
 **Ghosts** only expose `observe()` and read-only private-queue access. They have no correction method.
 
-**Anchor** requires a human decision for every queue item. The output explicitly marks `human: true` and identifies the active anchor.
+**Anchor** requires a human decision for every queue item. Its merged view recursively strips source/observer identity and component hashes, uses per-item randomized neutral labels, and consumes only the current bounded redacted sealed-log projection. Solo mode requires monthly slice re-read and stop-button re-commitment; the last-20-decision >0.90 rule and event triggers pause operation until independent review and owner re-authorization. The output explicitly marks `human: true` and identifies the active anchor.
 
 **Orchestrator** checks approved weights, reset completion, output contracts, per-worker model and skill identity, runs visible critics, collects ghost observations, and routes each observation through the human review callback. Every stage is sealed.
 
