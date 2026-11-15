@@ -1,5 +1,11 @@
 # THE NIGHTMARE
 
+> **Governing rule:** “The ghosts are invisible so the human can be visible.”
+
+A supervised multi-agent system with stateless workers, two training-time observers, a frozen visible critic pair, a read-only knowledge library, cryptographically pinned model/skill identities, a sealed evidence chain, and one visible rotating human anchor. The human is the only correction authority. Ghosts observe and curate evidence; they never correct. THE WORLD is explicitly deferred.
+
+**Current architecture authority:** [Implementation Specification v1.0](docs/implementation-spec-v1.md). This supersedes the earlier seven-step code-side note and is the complete NIGHTMARE architecture handover. **Python reference package:** [`nightmare/`](nightmare/__init__.py). **Core tests:** [`tests/test_nightmare_core.py`](tests/test_nightmare_core.py).
+
 A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
 ## Project status
@@ -77,9 +83,13 @@ Phase 3 adds lexical retrieval from a frozen, manifest-verified local corpus and
 
 The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
 
-## Owner-supplied code-side contract — 2026-11-15
+## Current owner specification and implementation status
 
-The complete code-side specification supplied by the owner has been preserved in [docs/code-side-implementation-contract-v0.2.md](docs/code-side-implementation-contract-v0.2.md). It defines the shared output contract and mandatory model hash pin, total-reset design and state-equality gate, immutable versioned skill capsules with human approval, sealed hash-chain evidence, two observer-only Ghosts (Mandela and Matrix), the anonymous Nail review queue, known omissions, and the required seven-step build order. **This is a copied design specification, not an implementation claim.** Implementation remains outstanding and must follow the specified order, beginning with `contracts.py` plus the ten-prompt fixed suite. The code sketches require correctness/security hardening documented in that companion file. THE WORLD is deferred; do not work on its branch during the NIGHTMARE finish.
+The authoritative complete architecture, threat model, component interfaces, correction lifecycle, Groundhog Day reset, fixed-weight skill evolution, sealed log, anti-collusion monitoring, mutual-watch limitation, grading engine, ten-prompt suite, Phases 0–10, policies, refusal boundary and F1–F10 failure register are in [docs/implementation-spec-v1.md](docs/implementation-spec-v1.md). It supersedes [the earlier code-side implementation note](docs/code-side-implementation-contract-v0.2.md), which remains preserved as historical source material.
+
+The following Python reference modules have been added on this branch: `contracts.py`, `reset.py`, `seal.py`, `skills.py`, `ghosts.py`, `anchor.py`, `orchestrator.py` and `fixed_suite.py`. A core unittest file is present at `tests/test_nightmare_core.py`. These are an initial integration scaffold, not a verified production implementation. Platform-specific network isolation and model-server restart must be supplied and independently verified by the runtime adapter. The still-image grading engine, calibrated critic, full rotation protocol, production worker/model adapters, deployment gates and end-to-end runtime proof remain outstanding. **No test execution or installed-phone runtime evidence has been collected in this documentation update; code status is UNVERIFIED until the suite is actually run.**
+
+Build order is now Phase 0 through Phase 10 as defined in the v1 specification. Work one phase at a time. Phase 1 is the first code gate; do not begin the later phases until its contract and ten-prompt tests pass. The World/ghost-world experiment remains deferred and must not be started as part of this NIGHTMARE work.
 
 ## Long-term design intent
 
