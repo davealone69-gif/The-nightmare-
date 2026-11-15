@@ -33,7 +33,12 @@ class SkillLibrary:
             cap = SkillCapsule(**data["capsule"])
             if cap.hash != data["hash"] or file.stem != cap.hash: raise ValueError(f"capsule integrity failure: {file}")
             self._caps[cap.hash] = cap
-            if data.get("approved") is True: self._approved.add(cap.hash)
+        approvals = self.path / "approvals.jsonl"
+        if approvals.exists():
+            for line in approvals.read_text(encoding="utf-8").splitlines():
+                record = json.loads(line)
+                if record.get("approved") is True and record.get("hash") in self._caps:
+                    self._approved.add(record["hash"])
 
     def add(self, capsule: SkillCapsule) -> SkillCapsule:
         if capsule.version < 1 or not capsule.name: raise ValueError("invalid capsule identity")
