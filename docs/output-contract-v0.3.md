@@ -15,7 +15,7 @@ Rules:
 - Ghost outputs use `component_kind="code"`; `component_hash` is the ghost implementation artifact digest.
 - A `ghost.*` role with `component_kind="model"` is invalid.
 - A non-ghost role with `component_kind="code"` is invalid.
-- Model hashes are checked against the approved model hash set. Code hashes are recorded separately and must be checked against the approved component manifest by the runtime integration.
+- Model hashes are checked against the approved model hash set. Code hashes are checked against a separate approved code-component hash set through `Output.validate(approved_code_components=...)`.
 - Missing, malformed, or incorrectly typed component identity fails validation.
 - The ambiguous `weights_hash` field is removed from `Output`. Reset-plan `expected_weights_hash` remains a separate model-server reset pin.
 
@@ -23,7 +23,7 @@ Rules:
 
 This is a breaking schema revision from v0.2. Producers, consumers, tests, and sealed output readers must migrate together. The grading engine must not be built against the older envelope.
 
-The code hash must be a content hash, never a filename, absolute path, timestamp, or checkout identifier. The current observer implementation hashes its source file bytes; a canonical multi-file source-tree manifest and independent runtime identity check remain required before production use.
+The code hash is a canonical source-tree content manifest over a fixed sorted list of relative source paths. Each source file is read as UTF-8, line endings are normalized to LF, and the normalized bytes are SHA-256 hashed. The sorted manifest contains only relative paths and per-file content hashes, then is itself canonical-JSON hashed. Absolute paths, checkout roots, timestamps and filesystem metadata are excluded. The current ghost manifest pins `contracts.py` and `ghosts.py`; changing either changes the ghost artifact hash. Runtime deployment must still pin the resulting hash in an approved code-component manifest.
 
 ## Verification
 
