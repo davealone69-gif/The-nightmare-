@@ -53,7 +53,7 @@ Each phase is closed only when its own tests pass. Phase 9 wiring is blocked unt
 ### Policies
 - **Impossible tasks:** Tier A production prompts must pass; Tier B edge cases must degrade gracefully; Tier C impossible prompts are diagnostics/repair training only and never a certification gate.
 - **Safe failure:** abstention, escalation and "can't do this reliably" are rewarded; crashes, silent failure and fabricated success are penalized.
-- **Anchor rotation:** scheduled rotation, bounded slices, observed overlap handover, no self-extension, and early rotation on sustained approval rate above 0.9.
+- **Solo anchor:** one human anchor, blinded bounded slices, 30-day re-commitment, and a strict >0.90 approval rate over the latest 20 completed decisions. Safety triggers pause the system; no nonexistent replacement anchor or overlap handover is assumed.
 
 ### Failure register
 - **F1** rubber-stamping → early rotation and spot-audit.
@@ -68,10 +68,10 @@ Each phase is closed only when its own tests pass. Phase 9 wiring is blocked unt
 - **F10** skill capsule drift → reject promotion without test comparison and human approval.
 
 ### Explicitly deferred
-THE WORLD and its separate world/ghost experiment are not part of this project phase. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
+THE WORLD is the separate persistent simulated-world experiment with ghost-observed and clean comparison variants. It remains deferred until NIGHTMARE Phases 0–8 pass, its owner-approved handover is complete, and a separate scope/branch is explicitly authorized. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
 
-### Open Phase 0 decisions
-Ghost re-enablement authority; anchor count and slice allocation; retrain cadence; acceptable multi-agent latency/cost; first production domain; meaning of "not certified"; sealed-log storage and access; escalation when the anchor says "this feels wrong." These require explicit owner policy decisions and are not silently defaulted.
+### Phase 0 operating policy
+Conservative defaults for all eight decisions are recorded in [Phase 0 Operating Policy v0.1](docs/phase0-operating-policy-v0.1.md). Operational blockers remain: named owner identity, independent reviewer, encrypted sealed-log storage/access controls, and a tested stop/pause path. Do not claim Phase 0 complete until those are configured and tested.
 
 A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
 
