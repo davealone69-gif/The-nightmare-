@@ -21,6 +21,7 @@ class Output:
     abstain_reason: str | None = None
     model_id: str = ""
     weights_hash: str = ""
+    component_hash: str = ""
     skill_capsules: list[str] = field(default_factory=list)
     seed: int = 0
     created_at: float = field(default_factory=time.time)
@@ -35,8 +36,10 @@ class Output:
         if self.status == "ok" and self.payload is None: errors.append("ok requires payload")
         if self.status == "abstain" and not self.abstain_reason: errors.append("abstain requires abstain_reason")
         if self.status == "error" and not self.reasons: errors.append("error requires a reason")
-        if not self.weights_hash: errors.append("missing weights_hash")
-        if approved_weights is not None and self.weights_hash not in approved_weights:
+        is_ghost = self.role.startswith("ghost.")
+        if is_ghost and not self.component_hash: errors.append("ghost output requires component_hash")
+        if not is_ghost and not self.weights_hash: errors.append("missing weights_hash")
+        if not is_ghost and approved_weights is not None and self.weights_hash not in approved_weights:
             errors.append("weights_hash is not approved")
         if any(not isinstance(x, str) or not x for x in self.skill_capsules):
             errors.append("skill_capsules must contain non-empty hashes")
