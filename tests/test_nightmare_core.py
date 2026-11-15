@@ -110,14 +110,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(view), 2)
         self.assertNotIn("ghost.", str(view))
         with self.assertRaises(PermissionError):
-            anchor.approve({"role": "ghost.mandela", "_label": "review"}, human_decision="approve")
+            anchor.approve({"role": "ghost.mandela", "_label": "review"}, human_decision="approve", rationale="Reviewed evidence supports approval")
         for item in view:
             self.assertNotIn("role", item)
             self.assertNotIn("component_hash", item)
             self.assertIn(item["_label"], {"review", "second look"})
         for i in range(19):
             anchor.approve(view[0], human_decision="approve")
-        anchor.approve(view[1], human_decision="reject")
+        anchor.approve(view[1], human_decision="reject", rationale="Conflicting evidence requires rejection")
         status = anchor.rubber_stamp_check()
         self.assertTrue(status["rotate_early"])
         self.assertEqual(status["window_decisions"], 20)
@@ -132,7 +132,7 @@ class CoreTests(unittest.TestCase):
         trigger = anchor.event_trigger("anchor_reports_unsafe")
         self.assertTrue(trigger["system_paused"])
         with self.assertRaises(RuntimeError):
-            anchor.approve(view[0], human_decision="defer")
+            anchor.approve(view[0], human_decision="defer", rationale="Further review is required")
         with tempfile.TemporaryDirectory() as tmp:
             resume_log = SealedLog(Path(tmp) / "resume.jsonl")
             with self.assertRaises(PermissionError):
