@@ -35,6 +35,8 @@ class CoreTests(unittest.TestCase):
             first = library.add(SkillCapsule("retrieval", 1, "retrieval_policy", {"top_k": 4}))
             second = library.evolve(first.hash, {"top_k": 5})
             self.assertEqual(second.parent, first.hash)
+            with self.assertRaises(TypeError):
+                second.body["top_k"] = 99
             with self.assertRaises(PermissionError):
                 library.approve(second.hash, human_authorized=False, tests_passed=True)
             library.approve(second.hash, human_authorized=True, tests_passed=True)
@@ -50,6 +52,7 @@ class CoreTests(unittest.TestCase):
         ghost = Mandela()
         event = ghost.observe("r", outputs)
         self.assertIsNotNone(event)
+        self.assertTrue(event.component_hash)
         self.assertFalse(hasattr(ghost, "correct"))
         matrix = Matrix()
         self.assertIsNone(matrix.observe("r", [], set()))
