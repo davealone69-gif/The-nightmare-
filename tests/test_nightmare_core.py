@@ -46,13 +46,15 @@ class CoreTests(unittest.TestCase):
 
     def test_ghosts_observe_without_correction_interface(self):
         outputs = [
-            Output("r", "w1", "ok", {"answer": "same"}, 0.8, weights_hash=WEIGHTS),
-            Output("r", "w2", "ok", {"answer": "same"}, 0.8, weights_hash=WEIGHTS),
+            Output("r", "w1", "ok", {"answer": "same"}, 0.8, component_hash=WEIGHTS, component_kind="model"),
+            Output("r", "w2", "ok", {"answer": "same"}, 0.8, component_hash=WEIGHTS, component_kind="model"),
         ]
         ghost = Mandela()
         event = ghost.observe("r", outputs)
         self.assertIsNotNone(event)
         self.assertTrue(event.component_hash)
+        self.assertEqual(event.component_kind, "code")
+        self.assertEqual(event.validate(), [])
         self.assertFalse(hasattr(ghost, "correct"))
         matrix = Matrix()
         self.assertIsNone(matrix.observe("r", [], set()))
