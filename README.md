@@ -77,6 +77,10 @@ Phase 3 adds lexical retrieval from a frozen, manifest-verified local corpus and
 
 The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
 
+## Owner-supplied code-side contract — 2026-11-15
+
+The complete code-side specification supplied by the owner has been preserved in [docs/code-side-implementation-contract-v0.2.md](docs/code-side-implementation-contract-v0.2.md). It defines the shared output contract and mandatory model hash pin, total-reset design and state-equality gate, immutable versioned skill capsules with human approval, sealed hash-chain evidence, two observer-only Ghosts (Mandela and Matrix), the anonymous Nail review queue, known omissions, and the required seven-step build order. **This is a copied design specification, not an implementation claim.** Implementation remains outstanding and must follow the specified order, beginning with `contracts.py` plus the ten-prompt fixed suite. The code sketches require correctness/security hardening documented in that companion file. THE WORLD is deferred; do not work on its branch during the NIGHTMARE finish.
+
 ## Long-term design intent
 
 - Workers operate in isolated, stateless episodes and use a frozen, read-only library.
