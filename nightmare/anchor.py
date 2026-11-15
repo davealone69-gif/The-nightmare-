@@ -111,14 +111,27 @@ class Anchor:
             self.event_trigger("missed_monthly_recommitment")
         return due
 
-    def resume_after_review(self, *, independent_review_recorded: bool,
-                            owner_reauthorized: bool) -> None:
-        if not independent_review_recorded or not owner_reauthorized:
-            raise PermissionError("independent review and explicit owner re-authorization are required")
+    def resume_after_review(self, *, independent_reviewer_id: str, owner_id: str,
+                            review_evidence_ref: str, owner_authorization_ref: str,
+                            sealed_log: Any) -> dict[str, Any]:
+        if not all(isinstance(value, str) and value.strip() for value in (
+            independent_reviewer_id, owner_id, review_evidence_ref, owner_authorization_ref
+        )):
+            raise PermissionError("reviewer, owner and evidence/authorization references are required")
+        if independent_reviewer_id == owner_id:
+            raise PermissionError("the independent reviewer must be a different human from the owner")
         if not self.paused:
             raise RuntimeError("anchor is not paused")
+        record = {"event": "resume_after_independent_review",
+                  "independent_reviewer_id": independent_reviewer_id,
+                  "owner_id": owner_id, "review_evidence_ref": review_evidence_ref,
+                  "owner_authorization_ref": owner_authorization_ref,
+                  "previous_pause_reason": self.pause_reason, "decided_at": time.time()}
+        # Append first. If sealing fails, the system remains paused.
+        sealed_log.append(self.anchor_id, "resume_authorization", record)
         self.paused = False
         self.pause_reason = None
+        return record
 
     def event_trigger(self, reason: str) -> dict[str, Any]:
         if reason not in ROTATION_EVENTS:
