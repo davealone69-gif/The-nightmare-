@@ -59,7 +59,7 @@ class Anchor:
             merged.append(row)
         return sorted(merged, key=lambda x: x.get("ts", x.get("created_at", 0)))
 
-    def approve(self, item: dict[str, Any], *, human_decision: str,
+    def approve(self, item: dict[str, Any], *, human_decision: str, rationale: str,
                 correction: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.paused:
             raise RuntimeError("anchor protocol is paused; no decisions may be issued")
@@ -69,11 +69,13 @@ class Anchor:
             raise ValueError("a recorded human decision is required")
         if human_decision not in {"approve", "reject", "defer", "correct"}:
             raise ValueError("invalid human decision")
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise ValueError("a visible human rationale is required")
         self.flags_seen += 1
         if human_decision in {"approve", "correct"}:
             self.approvals += 1
         result = {"issued_by": self.anchor_id, "human": True,
-                  "decision": human_decision, "correction": correction,
+                  "decision": human_decision, "rationale": rationale, "correction": correction,
                   "item": item, "decided_at": time.time()}
         self._decisions.append(result)
         return result
