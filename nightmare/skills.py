@@ -132,7 +132,7 @@ class SkillLibrary:
         approvals = self.path / "approvals.jsonl"
         with approvals.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps({"hash": capsule_hash, "approved": True},
-                                    sort_keys=True, separators=(",", ":")) + "\\n")
+                                    sort_keys=True, separators=(",", ":")) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         self._approved.add(capsule_hash)
