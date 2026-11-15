@@ -11,7 +11,7 @@ class FrozenDict(dict):
     """JSON-serializable dict that rejects mutation, including nested capsule mappings."""
     def _immutable(self, *args, **kwargs):
         raise TypeError("skill capsule bodies are immutable")
-    __setitem__ = __delitem__ = clear = pop = popitem = setdefault = update = _immutable
+    __setitem__ = __delitem__ = clear = pop = popitem = setdefault = update = __ior__ = _immutable
 
 def _freeze(value):
     if isinstance(value, dict):
@@ -105,7 +105,7 @@ class SkillLibrary:
 
 def identity(weights_hash: str, capsules: list[SkillCapsule]) -> dict[str, Any]:
     if not weights_hash: raise ValueError("weights_hash is required")
-    hashes = sorted(c.hash for c in capsules)
+    hashes = sorted({c.hash for c in capsules})
     return {"weights_hash": weights_hash,
             "skills_hash": hashlib.sha256(canonical(hashes)).hexdigest(),
             "skill_capsules": hashes}
