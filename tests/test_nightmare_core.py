@@ -45,6 +45,7 @@ class CoreTests(unittest.TestCase):
             self.assertNotIn("component_hash", projection["entries"][0]["data"])
             self.assertNotIn("ghost_id", projection["entries"][0]["data"]["payload"])
             self.assertNotIn("ghost.mandela", str(projection))
+            self.assertEqual(projection["entries"][0]["data"]["payload"]["signal"], "monitor_flag")
             path.write_text(path.read_text().replace('"defer"', '"approve"'))
             self.assertFalse(verify_chain(path))
 
@@ -84,6 +85,7 @@ class CoreTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.component_kind, "code")
         self.assertEqual(event.validate(approved_code_components={event.component_hash}), [])
+        self.assertEqual(Mandela().component_hash, ghost.component_hash)
         self.assertFalse(hasattr(ghost, "correct"))
         matrix = Matrix()
         self.assertIsNone(matrix.observe("r", [], set()))
@@ -101,6 +103,7 @@ class CoreTests(unittest.TestCase):
             [{"role": "ghost.matrix", "component_hash": "c" * 64,
               "payload": {"signal": "mechanism"}}])
         self.assertEqual(len(view), 2)
+        self.assertNotIn("ghost.", str(view))
         for item in view:
             self.assertNotIn("role", item)
             self.assertNotIn("component_hash", item)
