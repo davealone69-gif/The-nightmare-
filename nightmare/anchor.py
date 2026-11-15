@@ -124,5 +124,6 @@ class Anchor:
                 "resume_requires": "independent human review and explicit re-authorization"}
 
     def pause(self, reason: str) -> None:
+        if not self.paused:
+            self.pause_reason = reason
         self.paused = True
-        self.pause_reason = reason
