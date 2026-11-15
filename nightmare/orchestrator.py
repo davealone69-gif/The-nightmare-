@@ -20,6 +20,8 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str,
         raise RuntimeError(f"anchor protocol paused: {anchor.pause_reason}")
     if anchor.monthly_recommitment_due():
         raise RuntimeError("monthly solo anchor re-commitment is due; episode halted")
+    if not 3 <= len(workers) <= 5:
+        raise ValueError("episode requires 3 to 5 specialist workers")
     if weights_hash not in approved_hashes:
         raise PermissionError("unapproved model weights")
     if reset_plan.expected_weights_hash != weights_hash:
