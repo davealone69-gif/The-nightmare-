@@ -15,7 +15,7 @@ Rules:
 - Ghost outputs use `component_kind="code"`; `component_hash` is the ghost implementation artifact digest.
 - A `ghost.*` role with `component_kind="model"` is invalid.
 - A non-ghost role with `component_kind="code"` is invalid.
-- Model hashes are checked against the approved model hash set. Code hashes are checked against a separate approved code-component hash set through `Output.validate(approved_code_components=...)`.
+- Both allowlists are mandatory at validation time: model hashes are checked against the approved model hash set, and code hashes are checked against a separate approved code-component hash set through `Output.validate(approved_code_components=...)`. Calling validation without the matching allowlist fails closed.
 - Missing, malformed, or incorrectly typed component identity fails validation.
 - The ambiguous `weights_hash` field is removed from `Output`. Reset-plan `expected_weights_hash` remains a separate model-server reset pin.
 
