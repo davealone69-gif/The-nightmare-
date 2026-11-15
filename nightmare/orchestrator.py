@@ -8,7 +8,7 @@ from .seal import SealedLog, verify_chain
 from .anchor import Anchor
 
 def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_hashes: set[str],
-            skills: list[str], workers: list[Callable[[dict[str, Any]], Output]],
+            skills: list[str], approved_ghost_hashes: set[str],\n            workers: list[Callable[[dict[str, Any]], Output]],
             visible_pair: Callable[[list[Output]], dict[str, Any]],
             ghosts: tuple[Any, Any], anchor: Anchor, sealed: SealedLog,
             reset_plan: ResetPlan, human_review: Callable[[dict[str, Any]], tuple[str, dict[str, Any] | None]]) -> dict[str, Any]:
@@ -33,7 +33,7 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
     for ghost in ghosts:
         event = ghost.observe(run_id, outputs) if ghost.role == "ghost.mandela" else ghost.observe(run_id, pair_result.get("trace", []))
         if event is not None:
-            errors = event.validate()
+            errors = event.validate(approved_code_components=approved_ghost_hashes)
             if errors: raise ValueError(f"ghost contract violation for {ghost.role}: {errors}")
             sealed.append(ghost.role, "observation", asdict(event))
             queues.append({"ts": event.created_at, "signal": event.payload, "run_id": run_id})
