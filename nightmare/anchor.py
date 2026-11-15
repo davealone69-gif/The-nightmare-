@@ -12,7 +12,8 @@ IDENTITY_FIELDS = {
 }
 def _blind(value):
     if isinstance(value, dict):
-        return {key: ("monitor_flag" if key == "signal" else _blind(item))\n                for key, item in value.items() if key not in IDENTITY_FIELDS}
+        return {key: ("monitor_flag" if key == "signal" else _blind(item))
+                for key, item in value.items() if key not in IDENTITY_FIELDS}
     if isinstance(value, list):
         return [_blind(item) for item in value]
     if isinstance(value, tuple):
