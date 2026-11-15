@@ -38,9 +38,9 @@ Consciousness, intent and self-awareness are explicitly out of scope. The engine
 
 ### 3.1 Human anchor (visible Nail)
 
-The active anchor receives one merged review queue. Its two neutral labels are `review` and `second look`; the anchor is not shown ghost identity. The anchor sees only its assigned sealed-log slice, not the whole log. The anchor can approve, reject, defer, correct, escalate and stop the run. Every decision records the named human, decision, time and evidence reference.
+The active anchor receives one merged review queue. Each item receives a randomly assigned neutral label, `review` or `second look`; label assignment must not be a stable mapping to either ghost. The anchor is not shown ghost identity, role, code hash, model ID or source attribution. The anchor receives only a bounded, blinded projection of its assigned sealed-log slice. Raw provenance remains in the restricted evidence store and is not included in the anchor projection. The anchor can approve, reject, defer, correct, escalate and stop the run. Every decision records the named human, decision, time and blinded evidence reference.
 
-The anchor cannot authorize their own continuation. Rotation is scheduled, includes overlap handover under observation, splits log slices, and records missed or bypassed handovers. A sustained approval rate above 0.9 triggers early rotation and spot-audit. Approval rate is a signal, not proof of capture.
+The current operating mode has one human anchor, so overlap handover is not applicable. The solo anchor must re-open and re-read the current slice, test the stop control and re-affirm responsibility at least every 30 calendar days. Missing the deadline pauses new episodes. The approval-rate trigger is strictly greater than 0.90 over the most recent 20 completed decisions; approve/correct count as approvals, reject/defer as non-approvals. Fewer than 20 decisions cannot trigger this statistical rule. In solo mode any rotation trigger pauses the system until an independent human reviewer investigates and the project owner explicitly re-authorizes. No replacement anchor is assumed.
 
 ### 3.2 Ghost A: Mandela
 
@@ -108,7 +108,7 @@ Reset targets are explicitly enumerated:
 - model server stopped and freshly started, with the loaded artifact re-hashed;
 - post-reset filesystem/environment manifest.
 
-The sealed evidence log is not transient tool state and is not deleted by reset. It is held outside reset targets. A run cannot start unless reset reports complete. Network isolation and model restart are injected, platform-specific operations; a callback returning success is not sufficient by itself unless the separate verifier confirms the resulting state.
+The sealed evidence log is not transient tool state and is not deleted by reset. It is held outside reset targets. A run cannot start unless reset reports complete. Network isolation and model restart are injected, platform-specific operations; a callback returning success is not sufficient by itself unless the separate verifier confirms the resulting state. Model identity verification must query the identity endpoint of the freshly restarted server process and compare its reported loaded weights/artifact hash with the approved pin. Hashing a file on disk is not a substitute for querying the running process.
 
 **State-equality gate:** run the fixed suite twice with the same seed and a full reset before each run. Compare the declared manifests and normalized outputs. Any difference halts deployment and reports the exact differing fields. The comparison excludes intentionally variable audit timestamps but does not exclude task outputs or artifact identities.
 
@@ -125,7 +125,7 @@ A SkillCapsule contains:
 - JSON-compatible `body`;
 - `parent`: prior capsule hash or null.
 
-Capsule hash is SHA-256 over canonical JSON of every field. Capsules are append-only and parent-linked. Approval is a separate append-only event. The identity tuple is `(weights_hash, sorted skill capsule hashes)`; both are recorded on every model output.
+Capsule bodies are recursively frozen: mappings become read-only mapping proxies and arrays become tuples. The canonical content hash is computed once during construction and stored on the capsule. `validate()` recomputes the digest from the frozen structure and compares it with the stored construction-time hash. Capsules are append-only and parent-linked. Approval is a separate append-only event. The identity tuple is `(weights_hash, sorted skill capsule hashes)`; both are recorded on every model output.
 
 Evolution loop:
 1. Run episode; log failures, do not learn online.
@@ -141,9 +141,9 @@ No automatic capsule promotion. Fine-tuning is not part of this mechanism. If ad
 
 ## 7. Sealed evidence log
 
-Each JSONL entry contains `seq`, `ts`, `actor`, `kind`, `data`, `prev` and `hash`. Hash is SHA-256 over canonical JSON of the entry before the hash field is added. Each entry commits to the previous hash; genesis is `GENESIS`. Verification checks canonical content, sequence continuity, previous-hash linkage, complete newline-terminated records and every entry hash. Ghosts may append observations; they cannot rewrite entries. Anchor slices can be exported and verified independently when the slice includes its preceding hash anchor.
+Each JSONL entry contains `seq`, `ts`, `actor`, `kind`, `data`, `prev` and `hash`. Hash is SHA-256 over canonical JSON of the entry before the hash field is added. Each entry commits to the previous hash; genesis is `GENESIS`. Verification checks canonical content, sequence continuity, previous-hash linkage, complete newline-terminated records and every entry hash. Ghosts may append observations; they cannot rewrite entries. The anchor receives a bounded redacted projection with monitor actors normalized and all ghost identity/code-hash fields removed. The raw log and redacted projection are distinct objects; the anchor must never be granted raw-log read access as a shortcut. The projection has its own digest but does not replace independent verification against the raw chain.
 
-The hash chain is tamper-evident, not a hardware-backed immutable store. Production deployment must restrict filesystem permissions and back up the log to an independently controlled append-only destination.
+The production target is a private encrypted local data volume under the configured application data root, in a dedicated `sealed/` directory outside reset targets, source checkout, exports and cloud-sync folders. Raw readers are limited to the named project owner and a separately designated independent reviewer; access is audited and backups go to a separately controlled append-only destination. The hash chain is tamper-evident, not encryption or access control. Until the encrypted store, reader restrictions and independent reviewer are configured, production deployment is blocked.
 
 ## 8. Anti-collusion monitoring and quarantine
 
@@ -238,7 +238,7 @@ The correlation target is a release criterion to measure, not a claim about curr
 
 | Phase | Work | “Done” means |
 |---|---|---|
-| 0 | Decisions: safe failure, anti-collusion, impossible tasks, ghost re-enable authority, anchor cadence, certification meaning, sealed-log location | Named human owner approves a versioned policy record covering every decision |
+| 0 | Decisions: safe failure, anti-collusion, impossible tasks, ghost re-enable authority, solo-anchor cadence, certification meaning, sealed-log location/access and escalation | Owner approves the versioned [Phase 0 operating policy](phase0-operating-policy-v0.1.md); owner/reviewer identities, encrypted storage and stop path are configured and tested |
 | 1 | Output contract + ten-prompt fixed suite | Unit tests prove schema validation, weight pinning, abstention and deterministic suite execution |
 | 2 | Still-image grading MVP | JSON scorer, objective metrics, abstaining subjective critic, master dataset and measured held-out human correlation above 0.8 |
 | 3 | Total reset + state-equality audit | Two same-seed runs pass manifest/output equality with independently verified network block and model restart |
@@ -246,7 +246,7 @@ The correlation target is a release criterion to measure, not a claim about curr
 | 5 | Skill capsules | Parent-linked immutable capsules, persistent approval journal, regression comparison and human approval tests pass |
 | 6 | Visible critic pair | Frozen Good Cop/Bad Cop pair passes red-team and multi-episode manipulation tests |
 | 7 | Ghosts | Mandela and Matrix pass independent observer tests, queue isolation tests and no-correction interface tests; ghosts are retired before deployment |
-| 8 | Anchor protocol | Neutral merged queue, human-only decisions, slice verification, rotation/handover and rubber-stamp escalation tests pass |
+| 8 | Anchor protocol | Blinded bounded slice, human-only decisions, solo monthly re-commitment, event-triggered pause, 20-decision rubber-stamp window and escalation tests pass |
 | 9 | Orchestrator | End-to-end episode passes all prior gates; any failed gate halts and seals the reason |
 | 10 | Retrain loop | Human-authorized ghost re-enablement, offline improvement, frozen snapshot, regression comparison and redeployment audit pass |
 
@@ -268,7 +268,7 @@ Abstention, escalation and “can't do this reliably” are rewarded outputs. Cr
 
 ### 13.3 Anchor Rotation Policy
 
-The active anchor rotates on a published schedule. Each anchor holds only an assigned sealed-log slice, never the whole log. Handover has an overlap window under independent observation. No anchor authorizes their own continuation. Missed rotation, bypassed handover, approval-rate creep and unexplained access patterns are logged and escalated.
+For the current one-person deployment, use the solo policy: monthly re-commitment requires reopening and rereading the bounded slice, testing the stop button and explicit human affirmation. Approval-rate creep is measured over the last 20 completed decisions and triggers when strictly above 0.90. Failed spot-audits, unresolved queue contradictions, log integrity/access failures, an anchor stop/“this feels wrong” report, or missed monthly re-commitment immediately pause the system. There is no automatic substitute anchor; resume requires independent human review and explicit project-owner re-authorization. If a multi-anchor mode is introduced later, it requires a separate approved policy with bounded slices and independently observed overlap handover.
 
 ## 14. Refuse to build before Phase 9
 
@@ -289,7 +289,7 @@ Until Phases 0–8 have passed their own tests, refuse:
 
 | ID | Failure | Detection | Required response |
 |---|---|---|---|
-| F1 | Rubber-stamping | Approval rate >0.9 sustained; correction latency and spot-audit trend | Rotate early; add independent spot-audit |
+| F1 | Rubber-stamping | Approval rate strictly >0.90 over the latest 20 completed decisions; fewer than 20 is insufficient data | Solo mode: pause, independent spot-audit and explicit re-commitment; resume only after independent review and owner re-authorization |
 | F2 | Queue contradiction deadlock | Both queues flag conflicting behavior or one another | Preserve both findings; defer correction; escalate meta-signal to anchor |
 | F3 | Reset leak | State-equality manifest or output mismatch | HALT DEPLOY; name exact diff; fix and rerun |
 | F4 | Censor fingerprint | Behavior shifts around stripped/disabled capability | Stop stripping; prefer sealing; record artifact and behavior diff |
@@ -323,15 +323,8 @@ Train with two invisible-to-workers ghosts and one visible Good Cop / Bad Cop pa
 
 When someone proposes automating the anchor because it is slow: “That's the cult forming. Stop.”
 
-## 19. Open decisions requiring the owner's policy choice
+## 19. Phase 0 decisions and current defaults
 
-1. Who authorizes ghost re-enablement? Required invariant: a named human role, always.
-2. How many anchors participate in rotation, and how are sealed-log slices divided?
-3. Retrain cadence: weekly, monthly or event-driven?
-4. Acceptable latency/cost multiplier for multi-agent versus single-model execution?
-5. First production domain with a sufficiently high-quality library?
-6. Does “not certified” mean rejected or queued for human review?
-7. Exact sealed-log storage location and authorised readers?
-8. Escalation path when the active anchor says “this feels wrong”?
+The conservative defaults and deployment blockers are recorded in [Phase 0 Operating Policy v0.1](phase0-operating-policy-v0.1.md). In summary: the named human project owner alone authorizes ghost re-enablement; current mode is one solo anchor with a 30-calendar-day re-commitment; retraining is event-driven and never online; production latency/cost limits remain unapproved until measured; the candidate domain is synthetic or explicitly consented non-identifiable 3D still-image QA; “not certified” means no production/client-facing guarantee and quarantine or abstention rather than automatic rejection; raw sealed-log access is restricted to the project owner and a separately designated independent reviewer; and “this feels wrong” immediately pauses work pending independent review and explicit owner re-authorization.
 
-These are Phase 0 decisions. Defaults must not be silently invented in code.
+The policy is not operationally complete until named human identities, an independent reviewer, encrypted storage/access controls and the stop path are configured and tested. These are deployment blockers, not silent defaults.
