@@ -56,8 +56,9 @@ class CoreTests(unittest.TestCase):
 
     def test_anchor_requires_human_decision(self):
         anchor = Anchor("anchor-1", 0, 9999999999)
-        view = anchor.merged_view([], [{"created_at": 1.0, "payload": {"signal": "x"}}])
+        view = anchor.merged_view([], [{"created_at": 1.0, "role": "ghost.matrix", "payload": {"signal": "x"}}])
         self.assertEqual(view[0]["_label"], "second look")
+        self.assertNotIn("role", view[0])
         result = anchor.approve(view[0], human_decision="reject")
         self.assertIs(result["human"], True)
 
