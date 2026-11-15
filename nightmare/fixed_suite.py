@@ -22,7 +22,7 @@ def _stable_output(out: Output) -> dict[str, Any]:
     return {"run_id": out.run_id, "role": out.role, "status": out.status,
         "payload": out.payload, "confidence": out.confidence, "reasons": out.reasons,
         "abstain_reason": out.abstain_reason, "model_id": out.model_id,
-        "weights_hash": out.weights_hash, "skill_capsules": out.skill_capsules,
+        "weights_hash": out.weights_hash, "component_hash": out.component_hash, "skill_capsules": out.skill_capsules,
         "seed": out.seed}
 
 def run_contract_suite(adapter: Callable[[dict[str, Any], int], Output],
