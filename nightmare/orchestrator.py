@@ -14,7 +14,8 @@ def episode(task: dict[str, Any], *, run_id: str, weights_hash: str, approved_ha
             reset_plan: ResetPlan, human_review: Callable[[dict[str, Any]], tuple[str, dict[str, Any] | None]]) -> dict[str, Any]:
     if weights_hash not in approved_hashes: raise PermissionError("unapproved model weights")
     reset = total_reset(reset_plan)
-    sealed.append("system", "reset_report", reset)
+    sealed_reset = {k: v for k, v in reset.items() if k != "child_env"}
+    sealed.append("system", "reset_report", sealed_reset)
     if not reset["complete"]: raise RuntimeError("reset incomplete; episode halted")
     outputs = []
     for worker in workers:
