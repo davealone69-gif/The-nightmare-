@@ -69,10 +69,13 @@ class Anchor:
     def rubber_stamp_check(self, threshold: float = 0.9, window: int = 20) -> dict[str, Any]:
         if not 0.0 < threshold <= 1.0 or window < 1:
             raise ValueError("invalid rubber-stamp threshold or window")
-        recent = self._decisions[-window:]
+        completed = [d for d in self._decisions if d.get("decision") in {"approve", "correct", "reject", "defer"}]
+        recent = completed[-window:]
         approvals = sum(d["decision"] in {"approve", "correct"} for d in recent)
         rate = approvals / len(recent) if recent else 0.0
         triggered = len(recent) == window and rate > threshold
+        if triggered:
+            self.pause("rubber_stamp_threshold")
         return {"approval_rate": rate, "rotate_early": triggered,
                 "threshold": threshold, "window_decisions": window,
                 "decisions_observed": len(recent), "approvals": approvals}
@@ -91,9 +94,26 @@ class Anchor:
                   "decided_at": timestamp}
         self._decisions.append(record)
         self.last_recommitted_at = timestamp
+        if self.pause_reason in {None, "monthly solo re-commitment incomplete", "missed_monthly_recommitment"}:
+            self.paused = False
+            self.pause_reason = None
+        return record
+
+    def monthly_recommitment_due(self, now: float | None = None) -> bool:
+        timestamp = time.time() if now is None else now
+        due = self.last_recommitted_at == 0.0 or timestamp - self.last_recommitted_at >= 30 * 24 * 60 * 60
+        if due:
+            self.event_trigger("missed_monthly_recommitment")
+        return due
+
+    def resume_after_review(self, *, independent_review_recorded: bool,
+                            owner_reauthorized: bool) -> None:
+        if not independent_review_recorded or not owner_reauthorized:
+            raise PermissionError("independent review and explicit owner re-authorization are required")
+        if not self.paused:
+            raise RuntimeError("anchor is not paused")
         self.paused = False
         self.pause_reason = None
-        return record
 
     def event_trigger(self, reason: str) -> dict[str, Any]:
         if reason not in ROTATION_EVENTS:
