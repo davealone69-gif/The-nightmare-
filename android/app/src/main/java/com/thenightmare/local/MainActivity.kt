@@ -83,13 +83,15 @@ class MainActivity : Activity() {
         scheduleAbandonedStagingCleanup()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Build.VERSION.SDK_INT < 35) window.setDecorFitsSystemWindows(false)
+        }
+        render()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.insetsController?.setSystemBarsAppearance(
                 0,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
                     WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             )
         }
-        render()
     }
 
     override fun onDestroy() {
