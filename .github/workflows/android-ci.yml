@@ -78,10 +78,7 @@ jobs:
             adb shell am start -W -n com.thenightmare.local/.MainActivity
             sleep 5
             adb shell pidof com.thenightmare.local
-            if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then
-              adb logcat -d -s AndroidRuntime:E
-              exit 1
-            fi
+            if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then adb logcat -d -s AndroidRuntime:E; exit 1; fi
 
       - name: Verify APK exists and report metadata
         shell: bash
