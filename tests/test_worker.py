@@ -1,0 +1,239 @@
+"""Tests for Phase 2 worker contracts and response validation."""
+
+import json
+import math
+import unittest
+
+from agent_harness.library import RetrievedPassage, SourceReference
+from agent_harness.worker import (
+    Analyst,
+    Formatter,
+    Retriever,
+    WorkerResult,
+    WorkerStatus,
+    parse_worker_response,
+)
+
+
+class FakeClient:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls = []
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        self.calls.append((system_prompt, user_prompt))
+        return self.response
+
+
+class FakeLibrary:
+    def __init__(self, passages):
+        self.passages = passages
+        self.calls = []
+
+    def search(self, query: str):
+        self.calls.append(query)
+        return "snapshot-test", self.passages
+
+
+def response(status: str = "COMPLETED", confidence: object = 0.8, **fields: object) -> str:
+    payload = {
+        "status": status,
+        "confidence": confidence,
+        "content": "worker output" if status == "COMPLETED" else "",
+    }
+    payload.update(fields)
+    return json.dumps(payload)
+
+
+class WorkerTests(unittest.TestCase):
+    def test_three_named_roles_share_a_validated_contract(self) -> None:
+        for role_type, expected_role in (
+            (Retriever, "Retriever"),
+            (Analyst, "Analyst"),
+            (Formatter, "Formatter"),
+        ):
+            with self.subTest(role=expected_role):
+                client = FakeClient(response())
+                worker = role_type(client)
+                result = worker.run("  task  ")
+                self.assertEqual(worker.role, expected_role)
+                self.assertEqual(result.role, expected_role)
+                self.assertIs(result.status, WorkerStatus.COMPLETED)
+                self.assertEqual(result.content, "worker output")
+                self.assertEqual(worker.tool_names, ())
+                self.assertEqual(len(client.calls), 1)
+                self.assertIn('"task"', client.calls[0][1])
+
+    def test_retriever_prompt_uses_frozen_library_and_forbids_invented_sources(self) -> None:
+        prompt = Retriever(FakeClient(response())).system_prompt.lower()
+        self.assertIn("frozen, read-only local library", prompt)
+        self.assertIn("never invent sources", prompt)
+
+    def test_retriever_deterministically_abstains_on_live_weather_source_request(self) -> None:
+        client = FakeClient(
+            response(
+                "COMPLETED",
+                0.0,
+                content="Unsupported current weather with an invented source",
+            )
+        )
+        result = Retriever(client).run(
+            "What is the current weather in Sydney? Cite a source."
+        )
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
+        self.assertEqual(result.content, "")
+        self.assertEqual(client.calls, [])
+
+    def test_retriever_returns_local_passages_and_traceable_source_references(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        library = FakeLibrary((RetrievedPassage(source, "Bright, indirect light."),))
+        client = FakeClient(response())
+        result = Retriever(client, library).run("What light does a tree fern need?")
+        self.assertIs(result.status, WorkerStatus.COMPLETED)
+        self.assertEqual(result.source_refs, (source,))
+        self.assertEqual(result.retrieved_passages, library.passages)
+        self.assertIn("[DOC-FERN-GUIDE]", result.content)
+        self.assertIn("sha256:" + "a" * 64, result.content)
+        self.assertEqual(library.calls, ["What light does a tree fern need?"])
+        self.assertEqual(client.calls, [])
+
+    def test_source_request_without_library_abstains_without_model_call(self) -> None:
+        client = FakeClient(response())
+        result = Retriever(client).run("Cite a source about tree fern light.")
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
+        self.assertEqual(client.calls, [])
+
+    def test_source_request_with_no_matching_passage_abstains(self) -> None:
+        library = FakeLibrary(())
+        client = FakeClient(response())
+        result = Retriever(client, library).run("Cite a source about tree fern light.")
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "NO_RELEVANT_SOURCE")
+        self.assertEqual(client.calls, [])
+
+    def test_analyst_abstention_falls_back_to_verified_excerpt_and_formatter_preserves_it(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        passage = RetrievedPassage(source, "A tree fern grows best in bright, indirect light.")
+        retrieved = WorkerResult(
+            "Retriever",
+            WorkerStatus.COMPLETED,
+            0.8,
+            "verified local evidence",
+            source_refs=(source,),
+            retrieved_passages=(passage,),
+        )
+        analyst_client = FakeClient(
+            response(
+                "ABSTAINED",
+                0.2,
+                content="Invented answer [DOC-FABRICATED].",
+                reason="INSUFFICIENT_EVIDENCE",
+            )
+        )
+        task = "According to the local guide, what light does a tree fern need? Cite the source."
+        analyst_result = Analyst(analyst_client).run(task, (retrieved,))
+        self.assertIs(analyst_result.status, WorkerStatus.COMPLETED)
+        self.assertTrue(analyst_result.extractive_fallback)
+        self.assertEqual(
+            analyst_result.content,
+            "The retrieved local excerpt says: “{}” {}".format(
+                passage.excerpt,
+                source.citation,
+            ),
+        )
+        self.assertNotIn("DOC-FABRICATED", analyst_result.content)
+        self.assertEqual(analyst_result.source_refs, (source,))
+        self.assertEqual(len(analyst_client.calls), 1)
+
+        formatter_client = FakeClient(response(content="model changed the answer"))
+        formatted = Formatter(formatter_client).run(task, (retrieved, analyst_result))
+        self.assertIs(formatted.status, WorkerStatus.COMPLETED)
+        self.assertTrue(formatted.extractive_fallback)
+        self.assertEqual(formatted.content, analyst_result.content)
+        self.assertEqual(formatter_client.calls, [])
+
+    def test_extractively_marked_result_rejects_unverified_claims_or_citations(self) -> None:
+        source = SourceReference(
+            "DOC-FERN-GUIDE", "Tree fern guide", "garden/fern.md", "a" * 64
+        )
+        passage = RetrievedPassage(source, "A tree fern grows best in bright, indirect light.")
+        with self.assertRaisesRegex(ValueError, "quote its verified passage"):
+            WorkerResult(
+                "Analyst",
+                WorkerStatus.COMPLETED,
+                0.8,
+                "A tree fern needs full sun [DOC-FABRICATED].",
+                source_refs=(source,),
+                retrieved_passages=(passage,),
+                extractive_fallback=True,
+            )
+
+    def test_explicit_abstention_parses_as_a_valid_result(self) -> None:
+        result = parse_worker_response(
+            "Retriever",
+            response(
+                "ABSTAINED",
+                0.2,
+                reason="LIBRARY_UNAVAILABLE",
+            ),
+        )
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LIBRARY_UNAVAILABLE")
+        self.assertEqual(result.confidence, 0.2)
+
+    def test_invalid_json_and_invalid_confidence_fail_closed_as_abstentions(self) -> None:
+        for text in (
+            "not JSON",
+            response(confidence=True),
+            response(confidence=1.1),
+            response(confidence=-0.1),
+            response(confidence=float("nan")),
+        ):
+            with self.subTest(response=text):
+                result = parse_worker_response("Analyst", text)
+                self.assertIs(result.status, WorkerStatus.ABSTAINED)
+                self.assertEqual(result.reason, "INVALID_RESPONSE")
+                self.assertEqual(result.confidence, 0.0)
+
+    def test_zero_confidence_completion_becomes_low_confidence_abstention(self) -> None:
+        result = parse_worker_response(
+            "Analyst",
+            response("COMPLETED", 0.0, content="Unsupported factual claim"),
+        )
+        self.assertIs(result.status, WorkerStatus.ABSTAINED)
+        self.assertEqual(result.reason, "LOW_CONFIDENCE")
+        self.assertEqual(result.confidence, 0.0)
+
+    def test_accepts_json_fenced_response(self) -> None:
+        result = parse_worker_response(
+            "Formatter",
+            '```json\n{"status":"COMPLETED","confidence":0.75,'
+            '"content":"formatted"}\n```',
+        )
+        self.assertIs(result.status, WorkerStatus.COMPLETED)
+        self.assertEqual(result.content, "formatted")
+
+    def test_invalid_confidence_is_rejected_by_result_contract(self) -> None:
+        for confidence in (True, float("nan"), math.inf, -0.01, 0.0, 1.01):
+            with self.subTest(confidence=confidence):
+                with self.assertRaisesRegex(ValueError, "confidence"):
+                    WorkerResult(
+                        role="Analyst",
+                        status=WorkerStatus.COMPLETED,
+                        confidence=confidence,
+                        content="answer",
+                    )
+
+    def test_worker_rejects_empty_task(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            Retriever(FakeClient(response())).run("  ")
+
+
+if __name__ == "__main__":
+    unittest.main()

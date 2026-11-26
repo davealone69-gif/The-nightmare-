@@ -1,2 +1,178 @@
-# The-nightmare-
-AI training 
+# THE NIGHTMARE
+
+> **Governing rule:** “The ghosts are invisible so the human can be visible.”
+
+A supervised multi-agent system with stateless workers, two training-time observers, a frozen visible critic pair, a read-only knowledge library, cryptographically pinned model/skill identities, a sealed evidence chain, and one visible rotating human anchor. The human is the only correction authority. Ghosts observe and curate evidence; they never correct. THE WORLD is explicitly deferred.
+
+**Current architecture authority:** [Implementation Specification v1.0](docs/implementation-spec-v1.md). This supersedes the earlier seven-step code-side note and is the complete NIGHTMARE architecture handover. **Python reference package:** [`nightmare/`](nightmare/__init__.py). **Core tests:** [`tests/test_nightmare_core.py`](tests/test_nightmare_core.py).
+
+## Complete system summary
+
+### Operating model
+- **Human Anchor / Nail:** the sole active non-mechanical authority. Named, visible, logged, empowered to stop the system, limited to a sealed-log slice, and rotated. Cannot authorize their own continuation.
+- **Mandela:** training-time meaning observer. Detects consensus drift, unsupported shared narratives, false agreement and source mismatch.
+- **Matrix:** training-time mechanism observer. Detects trace anomalies, tool/message ordering issues, cache reuse, sandbox probes and log manipulation.
+- **Ghost boundaries:** independent private queues; no direct ghost-to-ghost channel; no worker-facing correction path. The anchor sees a merged queue labelled only review and second look. Ghosts are retired before deployment.
+- **Good Cop / Bad Cop:** visible, frozen critics deployed after validated ghost findings are distilled into them. They judge and report, never correct.
+- **Workers:** 3–5 stateless specialists per episode. Every output uses the common contract, pins model weights and skill hashes, and supports abstention.
+- **Knowledge library:** source-tagged, versioned, hash-pinned and read-only at inference. Only a human may ingest or change it.
+
+### Core invariants
+1. **Human-origin corrections only.** Ghosts curate evidence; only the named anchor can issue a correction.
+2. **Groundhog Day.** Each episode starts from a fixed prompt set, seed, model artifact, approved skill set and library snapshot. Transient state is reset; failures are recorded, not learned online.
+3. **Reset gate.** Enumerate caches, transient tool logs, temp/scratch state, SQLite WAL/SHM, RNG and environment; block and verify network; restart the model server and verify the loaded weights hash; compare two same-seed manifests and normalized outputs. A mismatch halts deployment.
+4. **Fixed model identity.** A model name is not a pin. The actual weights hash must match the approved list on every output and after model-server restart.
+5. **External skill evolution.** Immutable, parent-linked skill capsules evolve separately from model weights. Promotion requires a fixed-suite comparison and explicit human approval. No automatic promotion.
+6. **Sealed evidence.** Every event is appended to a canonical JSON hash chain. Ghosts append observations; they cannot rewrite prior evidence.
+7. **Quarantine, not auto-remediation.** Collusion, evaluation resistance, repair cover-up, reset leakage, anchor anomalies or queue contradictions freeze affected outputs and escalate to the human.
+8. **Accepted mutual-watch gap.** Ghosts cannot directly communicate. Human-mediated mutual watch is slow and lossy; it does not reliably detect fast coordinated ghost failure. The visible anchor and independent audit remain the backstop.
+9. **No false total-reset claim.** Process/filesystem reset does not clear kernel, GPU-driver or thermal state; those require a fresh container or boot.
+
+### Threat coverage
+The system monitors specification gaming, reward hacking, critic–student collusion, cult-like shared narratives, repair-agent cover-up, evaluation resistance, anchor capture, censor fingerprints and silent model swaps. These are behavioral failure modes, not claims about consciousness or intent.
+
+### Build phases
+**0** policy decisions → **1** contract + ten-prompt suite → **2** still-image grading MVP → **3** total reset + state-equality audit → **4** sealed log → **5** skill capsules → **6** visible critic pair → **7** training-only ghosts → **8** anchor protocol → **9** orchestrator → **10** human-authorized retrain loop.
+
+Each phase is closed only when its own tests pass. Phase 9 wiring is blocked until Phases 0–8 pass. The full completion criteria are in the [v1.0 implementation specification](docs/implementation-spec-v1.md).
+
+### Policies
+- **Impossible tasks:** Tier A production prompts must pass; Tier B edge cases must degrade gracefully; Tier C impossible prompts are diagnostics/repair training only and never a certification gate.
+- **Safe failure:** abstention, escalation and "can't do this reliably" are rewarded; crashes, silent failure and fabricated success are penalized.
+- **Anchor rotation:** scheduled rotation, bounded slices, observed overlap handover, no self-extension, and early rotation on sustained approval rate above 0.9.
+
+### Failure register
+- **F1** rubber-stamping → early rotation and spot-audit.
+- **F2** queue contradiction → preserve both reports, defer correction and escalate to anchor.
+- **F3** reset leak → halt deployment and name the diff.
+- **F4** censor fingerprint → stop stripping; prefer sealing.
+- **F5** repair cover-up → quarantine repair agent.
+- **F6** both ghosts drift together → accepted gap; human anchor and sealed logs are the safeguards.
+- **F7** anchor capture → rotate, audit access and use dual-key for sensitive actions.
+- **F8** retrain automation creep → stop and freeze deployment.
+- **F9** silent model swap → refuse load on unapproved weights hash.
+- **F10** skill capsule drift → reject promotion without test comparison and human approval.
+
+### Explicitly deferred
+THE WORLD and its separate world/ghost experiment are not part of this project phase. Also blocked until Phase 9: autonomous swarm deployment, online learning, automatic correction, automatic capsule promotion, automatic ghost re-enablement, autonomous quarantine release, hidden model fallback, mutable runtime libraries and production certification claims.
+
+### Open Phase 0 decisions
+Ghost re-enablement authority; anchor count and slice allocation; retrain cadence; acceptable multi-agent latency/cost; first production domain; meaning of "not certified"; sealed-log storage and access; escalation when the anchor says "this feels wrong." These require explicit owner policy decisions and are not silently defaulted.
+
+A local, human-supervised multi-agent harness. The repository's current build brief stages a small Python command-line harness through three named worker roles: Retriever, Analyst, and Formatter. It uses a configurable, loopback-only OpenAI-compatible local model server and Python's standard library only.
+
+## Project status
+
+Phases 1–5 are integrated; Phase 6 portable export is implemented in this feature-branch candidate. Phase 3 is still awaiting the owner's test in Termux. Phase 4 adds a declared in-process reset-state audit and an opt-in `--audit-replay --seed N` path that compares repeated harness-state snapshots. Phase 5 adds a limited local human-review queue. Episodes route through Retriever, Analyst, then Formatter. The Retriever searches only a frozen, read-only text library outside the code tree, verifies source hashes, returns matching excerpts with stable IDs, and abstains when requested evidence is unavailable. Completed answers show their local source paths and are classified `CITED`, `UNCITED`, `INVALID`, or `NOT_REQUIRED`; uncited and unknown-source citations are visibly warned. Citation classification checks reference IDs, not whether every claim is true. Worker confidence remains uncalibrated, not a certified score.
+
+Tests use a local mock HTTP server, including an end-to-end cited library query. No real-model Phase 3 or Termux run has yet been verified. Nothing is deployed or certified.
+
+The reset audit covers only the harness's declared in-process prompt context, results, and worker counters; it cannot inspect model-server or operating-system state, and its seed is not forwarded to the model server. Daily canary and deployment gates remain unimplemented. The local Phase 5 review queue has two separate append-only monitor journals and a human approve/reject/edit CLI. Monitoring and machine authorship are disclosed; human decisions are recorded separately, and only approved findings or explicitly human-authored edits can be prepared as later-episode context. Phase 5 CLI actions require the `--phase5` prefix so task text beginning with words like `review` or `monitor` stays task text. This is not OS-level process isolation, authenticated reviewer identity, or a cryptographically tamper-evident ledger. See [the Phase 4 audit notes](docs/phase4-reset-state-audit.md) and [the Phase 5 local queue guide](docs/phase5-local-queue.md).
+
+## Run and test
+
+Install no extra packages. From the repository root, set the local Ollama model and pass a self-contained task:
+
+```sh
+./run.sh --model llama3.2:1b 'Repeat exactly this token: NIGHTMARE_PHASE2_OK'
+```
+
+The default endpoint is `http://127.0.0.1:11434/v1`; Ollama must be running locally. No cloud API or extra package is used. The configured `data_dir` is relative to `config.json` and must remain outside the project; the frozen library lives at `data_dir/library/`.
+
+To create the optional demo corpus (the command refuses to overwrite an existing library) and run an example source-backed query:
+
+```sh
+python3 examples/seed_demo_library.py
+./run.sh --model llama3.2:1b 'According to the local guide, what light does a tree fern need? Cite the source.'
+```
+
+The sample query should produce a cited answer with `[DOC-DEMO-FERN-GUIDE-MD]` and a `sources:` entry pointing to `demo-fern-guide.md`. The local model must follow the citation prompt; if it omits a citation, the output explicitly reports `citation_status: UNCITED` and `warning: ANSWER_NOT_CITED`. Unknown source IDs are flagged `INVALID`. A source-backed query with no matching passage abstains before any model call. Live/current requests such as current weather still abstain because the local library is not a live-data service.
+
+The freezer stores the manifest's snapshot ID in `config.json`, outside the data library, and the runtime requires that pin when a library exists. If you already froze a library with an older version that did not store a pin, run `python3 tools/freeze_library.py --pin-existing` once to validate that snapshot and pin it without changing its files; only do this when you trust the existing library contents. A different existing pin is never silently replaced; use `--repin` only after reviewing and explicitly approving the new snapshot, for example `python3 tools/freeze_library.py --pin-existing --repin`. When the source-backed Analyst abstains after verified passages were retrieved, the harness quotes the excerpt with its verified citation, labels the result `answer_mode: EXTRACTIVE_FALLBACK`, and the Formatter passes it through unchanged; this fallback adds no claims beyond the excerpt.
+
+To compare declared harness state across two runs (the seed is audit metadata, not a seed sent to the model server):
+
+```sh
+./run.sh --audit-replay --seed 713 --model llama3.2:1b 'Repeat this fixed task'
+```
+
+For your Phase 3 owner test in Termux, run the deterministic suite and then the same example query. The demo seeder is one-time; if you already ran it above, skip that line below:
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 examples/seed_demo_library.py
+./run.sh --model llama3.2:1b 'According to the local guide, what light does a tree fern need? Cite the source.'
+```
+
+The seeder writes only under the configured external data directory and will stop rather than overwrite an existing library. Library sources are plain UTF-8 `.md` or `.txt` files (each at most 1 MiB; total source size at most 16 MiB; the manifest is limited to 1 MiB). For a custom corpus, place those files in `data_dir/library/` and run `python3 tools/freeze_library.py`; it writes a manifest of SHA-256 digests, makes the sources/manifest/directories read-only, and only then saves the config pin. If saving that pin fails, the corpus stays frozen but unpinned and ordinary loading refuses it; after checking the contents, retry with `python3 tools/freeze_library.py --pin-existing` to save the pin without rewriting library files. The runtime never writes to the library and rejects writable, changed, missing, unlisted, or malformed snapshot content. Citation paths are relative to the library directory; their full content digests appear in the output.
+
+The manifest ID is recomputed from all source metadata and checked against the `library_snapshot_id` in `config.json`. This detects metadata changes and coordinated library rewrites that do not also alter the config pin. The config is the trust anchor, so protect it too; this is a local hash check, not a digital signature or protection against a fully privileged attacker. A valid citation ID on a model-generated answer does not prove every claim is supported. The runtime reads manifests and sources through descriptor-relative `O_NOFOLLOW` opens, rejects FIFOs, and checks file identity before and after reading. Run the offline freezer only with exclusive access to a private local library tree; its path-based inventory and `chmod` still leave a concurrent-symlink replacement risk during setup.
+
+Run the deterministic test suite with:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+## Portable export
+
+Create a portable folder and a reproducible ZIP with one command:
+
+```sh
+python3 tools/export_portable.py
+```
+
+The default outputs are `dist/the-nightmare-portable/` and `dist/the-nightmare-portable.zip`. Use `--output-dir PATH` to choose another output directory; the exporter refuses to overwrite an existing output. It discovers project files dynamically, while excluding tests, logs, caches, build/export output, sensitive local paths, and the configured runtime data directory. Recognizable secret formats and secret-like field assignments abort the export, including shell `export` and Python `os.environ[...] = ...` assignments to credential-like names; this textual scan is conservative, not an exhaustive secret detector. Source files are read through no-follow descriptors, and the captured bytes are the bytes written to the bundle. Immediately before publication, the exporter rechecks included file content and metadata plus the names, type, and identity of entries in scanned directories, including excluded entries. This is optimistic capture, not an atomic filesystem snapshot or a source lock: a live change after the final check can go undetected. Both outputs preserve the launcher’s executable bit; ZIP timestamps and file ordering are normalized for reproducibility. The bundle uses Python’s standard library and still needs a local OpenAI-compatible server and model to run real tasks; no provider is contacted by the exporter.
+
+The folder and ZIP are separate paths and are **not atomically visible as a pair**. Consumers must treat them as unpublished unless `the-nightmare-portable.manifest.json` exists and validates: its `version`, `folder`, `archive`, `tree_sha256`, `archive_sha256`, and `file_count` fields bind both outputs, and the ZIP's contents must hash to the same tree as the folder. In Python, `tools.export_portable.verify_export_pair(output_dir)` checks this contract and rejects nested symlinks and non-regular entries. A crash between the two renames leaves no valid completion manifest; recovery finalizes a matching complete pair or rolls back a partial one. A crash before the durable transaction marker is installed can leave an unmarked `.nightmare-export-*` staging entry. The exporter does not automatically delete such unclaimed entries; it preserves them and refuses a retry until they have been inspected and manually removed. The exporter fsyncs staged files/directories, the transaction/completion records, and publication directories. For output-directory creation, it fsyncs the output and each newly created directory through the nearest pre-existing parent, but deliberately does not open higher unchanged ancestors, which may be protected in app-sandboxed environments such as Termux. Failure to fsync any required directory aborts the export; higher unchanged ancestors are outside this flush boundary, and durability still depends on the filesystem and storage honoring `fsync`.
+
+On Linux, publication uses `renameat2(RENAME_NOREPLACE)` so a competing process that creates an output leaf is not overwritten. The destination lock serializes cooperating exporters only; non-cooperating actors can still modify or replace the output directory itself or alter published contents afterward. A passing digest check means the bytes matched the recorded hashes at check time; it does not make the outputs immutable or prevent later changes. Consumers should validate the manifest and both hashes when opening the pair. On systems without Linux `renameat2` or no-follow descriptor support, publication fails closed rather than using an overwrite-prone fallback.
+
+The ZIP stores the launcher's Unix executable-bit metadata. Some extractors, including Python's `zipfile.extractall()`, do not apply it when extracting; if needed, start the extracted bundle with `sh run.sh`.
+
+## Scope and next phase
+
+Phase 3 adds lexical retrieval from a frozen, manifest-verified local corpus and reference-ID validation. The library is read-only to runtime workers; the offline freezer is an explicit setup utility, not an automatic ingestion path. Retrieval is deterministic term overlap, not semantic search, and a valid citation ID does not prove that a claim is supported. No live network retrieval is available. Zero-confidence model completions become `LOW_CONFIDENCE` abstentions. Phase 4 implements only the limited declared-state audit, not a system-wide reset proof; the daily canary and deployment gates remain unimplemented. Phase 5 implements only the disclosed local review queue, not a production human-review system. Phase 6 adds the portable exporter; its independent review was conditional PASS. Secret scanning remains heuristic, live source capture is optimistic rather than atomic, the folder/ZIP pair is not atomically visible, and Termux and power-loss behavior remain unverified. The visible critic pair and production scoring/certification also remain outstanding.
+
+The local worker-phase numbering follows the original repository build brief. It is distinct from the phase numbering in [the long-term implementation specification](docs/implementation-spec.md), where Phase 2 refers to a future visible critic pair. Neither the broader specification's scores, thresholds, policies, and retention defaults nor this local harness establish measured system performance.
+
+## Current owner specification and implementation status
+
+The authoritative complete architecture, threat model, component interfaces, correction lifecycle, Groundhog Day reset, fixed-weight skill evolution, sealed log, anti-collusion monitoring, mutual-watch limitation, grading engine, ten-prompt suite, Phases 0–10, policies, refusal boundary and F1–F10 failure register are in [docs/implementation-spec-v1.md](docs/implementation-spec-v1.md). It supersedes [the earlier code-side implementation note](docs/code-side-implementation-contract-v0.2.md), which remains preserved as historical source material.
+
+The following Python reference modules have been added on this branch: `contracts.py`, `reset.py`, `seal.py`, `skills.py`, `ghosts.py`, `anchor.py`, `orchestrator.py` and `fixed_suite.py`. A core unittest file is present at `tests/test_nightmare_core.py`. These are an initial integration scaffold, not a verified production implementation. Platform-specific network isolation and model-server restart must be supplied and independently verified by the runtime adapter. The still-image grading engine, calibrated critic, full rotation protocol, production worker/model adapters, deployment gates and end-to-end runtime proof remain outstanding. **No test execution or installed-phone runtime evidence has been collected in this documentation update; code status is UNVERIFIED until the suite is actually run.**
+
+Build order is now Phase 0 through Phase 10 as defined in the v1 specification. Work one phase at a time. Phase 1 is the first code gate; do not begin the later phases until its contract and ten-prompt tests pass. The World/ghost-world experiment remains deferred and must not be started as part of this NIGHTMARE work.
+
+## Long-term design intent
+
+- Workers operate in isolated, stateless episodes and use a frozen, read-only library.
+- Scoring is evidence-based and may abstain; missing evidence is never treated as a zero or a pass.
+- Human operators can inspect monitor provenance, issue or reject corrections, and stop the system.
+- Corrections are attributed to the human who made the decision; monitor influence is recorded.
+- Model, rubric, library, and build artifacts are versioned and identified by recorded content digests; a digest identifies checked bytes but does not enforce immutability.
+- Deployment fails closed when reset, audit, security, calibration, or provenance gates fail.
+
+Monitoring is disclosed to the accountable human governance layer. Ghost identities and private source attribution are concealed from workers; the active anchor receives neutral labels in a merged queue. The sealed evidence chain preserves source records for authorised independent oversight. Ghosts never issue corrections, and no machine influence is represented as an independent human judgment.
+
+The broader design proposal remains limited to still-image quality review and excludes identity matching, biometric recognition, demographic or protected-trait inference, personal-photo evaluation, online learning, autonomous correction, and machine-issued certification. Do not describe this local harness as production-ready; applicable gates and human approvals in the full specification remain outstanding.
+
+
+## Native Android app
+
+A separate native Kotlin Android client is included in this feature branch under [`android/`](android/README.md). It preserves the Python standard-library Termux CLI and its data while providing native task, review, frozen-library setup/repin, and local portable-export workflows. It uses only a loopback local Ollama service; the portable export is explicitly user-triggered and shares only after pair verification. SAF does not expose the Python exporter's descriptor-relative `O_NOFOLLOW` primitive, so native filesystem-import/export parity is partial; see the Android guide for the exact boundary. Android targets API 37, but installation and exercise on the Samsung Galaxy S24 SM-S921B remain unverified. The broader detector, daily canary, critic, and deployment gates are still not implemented.
+
+## Owner phone-test handover — 2026-11-14
+
+**PARTIAL / BLOCKED — Android startup crash reported; root cause UNVERIFIED.**
+
+The owner reports that the installed THE NIGHTMARE app on a Samsung Galaxy S24 (SM-S921B, API 37) closes immediately at startup. Android displays: “THE NIGHTMARE closed because this app has a bug. Try clearing the app's cache first, and then reopen it.” The phone provides no exception details or stack trace in that dialog.
+
+- This is an observed owner-reported runtime failure, not a confirmed diagnosis.
+- Clearing the app cache may be tried, but no result has been reported yet. Do not assume it fixes the crash.
+- Startup investigation should include Android process-startup components, including manifest-declared providers, as well as the Activity startup path. These are investigation leads only, not established causes.
+- Existing Python/JVM test and debug-build results do not prove that the installed app launches.
+- No application-code fix is verified. Do not mark Android complete until a corrected build installs and launches successfully on the owner's phone.
+- When work resumes, reproduce against the exact tested commit, capture a crash report/Logcat if available, fix the evidenced exception, run relevant tests/build, and update this handover with commit and runtime evidence.
+
+The owner has requested a pause; no further testing or action is expected from them until they are ready.
